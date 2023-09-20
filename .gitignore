@@ -6,3 +6,6 @@ data/
 
 # Ignore pycache
 __pycache__/
+
+# Ignore all test files
+*test*.ipynb
