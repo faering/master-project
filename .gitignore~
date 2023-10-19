@@ -1,6 +1,5 @@
-# Ignore folder
+# Ignore data folder
 data/
-fBOSC/
 
 # Ignore VSCode settings
 .vscode/
