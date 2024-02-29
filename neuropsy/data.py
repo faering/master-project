@@ -4,6 +4,8 @@ import re
 import pandas as pd
 import pickle
 from pymatreader import read_mat
+import mne
+import math
 
 
 class DataHandler():
@@ -87,6 +89,7 @@ class DataHandler():
         # initiate variables
         self.full = self.ieeg = self.df_exp = self.df_chan = self.df_target = None
         self.ch_names = None
+        self.raw = None
         # set filepath to load data from
         # note:
         #   needed to load full raw .mat file if data is not saved
@@ -150,6 +153,45 @@ class DataHandler():
                 data_ieeg = None
         finally:
             return data_ieeg
+
+    def _get_targets(self, path: str = '', load_saved: bool = False, postfix: str = ''):
+        """Get target locations for each picture as Pandas dataframe"""
+        try:
+            # set load path
+            if path is None or path == '':
+                load_path = self._path
+            else:
+                load_path = path
+            # load saved data
+            if load_saved:
+                path_df = ''.join(
+                    (load_path, "/sub", self._subject_id + "_targets", f"{'_' if postfix != '' else ''}{postfix}", ".csv"))
+                if self._verbose:
+                    print(
+                        f"loading saved targets data from {repr(path_df)}")
+                df = pd.read_csv(path_df)
+            # create from raw data
+            else:
+                if self._verbose:
+                    print("creating dataframe with target data from raw data")
+                df = pd.DataFrame(self.full['data'][f'file1'], columns=[
+                    'x_coordinate', 'y_coordinate', 'Unnamed: 1', 'Unnamed: 2']).drop(columns=['Unnamed: 1', 'Unnamed: 2'])
+                df['picture number'] = np.arange(1, 51)
+                if self._verbose:
+                    print("created targets dataframe")
+        except FileNotFoundError:
+            print(
+                f"Could not find file {repr(path_df)}. Make sure you have saved the targets data first and the postfix is set correctly.")
+            arg = input(
+                "Do you want to load the raw data instead? ([y]/n): ")
+            if arg == 'y' or arg == '':
+                if self.full is None:
+                    self.full = self._load_matlab_raw()
+                df = self._get_targets(load_saved=False)
+            else:
+                df = None
+        finally:
+            return df
 
     def _get_experiment_meta(self, path: str = '', load_saved: bool = False, postfix: str = ''):
         """Parse subject experiment data as Pandas dataframe"""
@@ -215,6 +257,26 @@ class DataHandler():
                 df['Trial Identifier'] = trial_identifiers_arr
                 df['Trial Identifier'] = df['Trial Identifier'].str.decode(
                     'utf-8')
+                # create new column for trial error
+                if self._verbose:
+                    print("creating new column 'Trial Error'")
+                if self.df_targets is None:
+                    print("targets dataframe not found, loading...")
+                    self.df_targets = self._get_targets(load_saved=False)
+                euclidean_distances = np.empty(df.shape[0])
+                euclidean_distances.fill(np.nan)
+                for pic_num in df['Picture Number'].unique():
+                    # get indices for picture number
+                    idx = df['Picture Number'][df['Picture Number']
+                                               == pic_num].index.to_list()
+                    for i in idx:
+                        p = [df['x_coordinate'].iloc[i],
+                             df['y_coordinate'].iloc[i]]
+                        q = [self.df_targets['x_coordinate'].iloc[pic_num-1],
+                             self.df_targets['y_coordinate'].iloc[pic_num-1]]
+                        distance = round(math.dist(p, q), 2)
+                        euclidean_distances[i] = distance
+                df['Trial Error'] = euclidean_distances
                 if self._verbose:
                     print("created experiment dataframe")
         except FileNotFoundError:
@@ -285,45 +347,6 @@ class DataHandler():
         finally:
             return df
 
-    def _get_targets(self, path: str = '', load_saved: bool = False, postfix: str = ''):
-        """Get target locations for each picture as Pandas dataframe"""
-        try:
-            # set load path
-            if path is None or path == '':
-                load_path = self._path
-            else:
-                load_path = path
-            # load saved data
-            if load_saved:
-                path_df = ''.join(
-                    (load_path, "/sub", self._subject_id + "_targets", f"{'_' if postfix != '' else ''}{postfix}", ".csv"))
-                if self._verbose:
-                    print(
-                        f"loading saved targets data from {repr(path_df)}")
-                df = pd.read_csv(path_df)
-            # create from raw data
-            else:
-                if self._verbose:
-                    print("creating dataframe with target data from raw data")
-                df = pd.DataFrame(self.full['data'][f'file1'], columns=[
-                    'x_coordinate', 'y_coordinate', 'Unnamed: 1', 'Unnamed: 2']).drop(columns=['Unnamed: 1', 'Unnamed: 2'])
-                df['picture number'] = np.arange(1, 51)
-                if self._verbose:
-                    print("created targets dataframe")
-        except FileNotFoundError:
-            print(
-                f"Could not find file {repr(path_df)}. Make sure you have saved the targets data first and the postfix is set correctly.")
-            arg = input(
-                "Do you want to load the raw data instead? ([y]/n): ")
-            if arg == 'y' or arg == '':
-                if self.full is None:
-                    self.full = self._load_matlab_raw()
-                df = self._get_targets(load_saved=False)
-            else:
-                df = None
-        finally:
-            return df
-
     def _get_exp_phase_name(self) -> str:
         """_get_exp_phase_name Get the name of the experiment phase
 
@@ -385,7 +408,7 @@ class DataHandler():
             load_path = self._path
             if self._verbose:
                 print(
-                    f"no save path provided. Using path {repr(load_path)} from initialization")
+                    f"no path provided. Using path {repr(load_path)} from initialization")
         else:
             load_path = path
             if not os.path.isdir(os.path.abspath(load_path)):
@@ -402,6 +425,18 @@ class DataHandler():
                     print("use <DataHandler>.ieeg to access intracranial EEG data")
                 if self.ieeg is None:
                     print("iEEG data not loaded")
+                print("done")
+        # load picture targets metadata
+        if load_targets:
+            if self._verbose:
+                print("loading picture target data...")
+            self.df_targets = self._get_targets(
+                path=load_path, load_saved=load_saved, postfix=postfix)
+            if self._verbose:
+                if self.df_targets is not None:
+                    print("use <DataHandler>.df_targets to access targets dataframe")
+                if self.df_targets is None:
+                    print("target data not loaded")
                 print("done")
         # load experiment metadata
         if load_exp:
@@ -426,18 +461,6 @@ class DataHandler():
                     print("use <DataHandler>.df_chan to access channel dataframe")
                 if self.df_chan is None:
                     print("channel data not loaded")
-                print("done")
-        # load picture targets metadata
-        if load_targets:
-            if self._verbose:
-                print("loading picture target data...")
-            self.df_targets = self._get_targets(
-                path=load_path, load_saved=load_saved, postfix=postfix)
-            if self._verbose:
-                if self.df_targets is not None:
-                    print("use <DataHandler>.df_targets to access targets dataframe")
-                if self.df_targets is None:
-                    print("target data not loaded")
                 print("done")
         # clean up
         if self.full is not None:
@@ -491,7 +514,7 @@ class DataHandler():
             save_path = self._path
             if self._verbose:
                 print(
-                    f"no save path provided. Using path {repr(save_path)} from initialization")
+                    f"no path provided. Using path {repr(save_path)} from initialization")
         else:
             save_path = path
             if not os.path.isdir(os.path.abspath(save_path)):
@@ -516,6 +539,22 @@ class DataHandler():
             else:
                 if self._verbose:
                     print(f"<DataHandler>.ieeg is None, skipping...")
+        # save target data
+        if save_targets:
+            if not self.df_targets is None:
+                filename = ''.join(
+                    (save_path, "/sub", self._subject_id, "_targets", f"{'_' if postfix != '' else ''}{postfix}", ".csv"))
+                if self._verbose:
+                    print(f"saving target data as {repr(filename)}")
+                    if os.path.isfile(filename):
+                        print(
+                            f"file {repr(filename)} already exists, overwriting...")
+                self.df_targets.to_csv(filename, index=False)
+                if self._verbose:
+                    print(f"done")
+            else:
+                if self._verbose:
+                    print(f"<DataHandler>.df_targets is None, skipping...")
         # save experiment dataframe
         if save_exp:
             if not self.df_exp is None:
@@ -548,22 +587,6 @@ class DataHandler():
             else:
                 if self._verbose:
                     print(f"<DataHandler>.df_chan is None, skipping...")
-        # save target data
-        if save_targets:
-            if not self.df_targets is None:
-                filename = ''.join(
-                    (save_path, "/sub", self._subject_id, "_targets", f"{'_' if postfix != '' else ''}{postfix}", ".csv"))
-                if self._verbose:
-                    print(f"saving target data as {repr(filename)}")
-                    if os.path.isfile(filename):
-                        print(
-                            f"file {repr(filename)} already exists, overwriting...")
-                self.df_targets.to_csv(filename, index=False)
-                if self._verbose:
-                    print(f"done")
-            else:
-                if self._verbose:
-                    print(f"<DataHandler>.df_targets is None, skipping...")
         if self._verbose:
             if self.ieeg is None and self.df_exp is None and self.df_chan is None and self.df_targets is None:
                 print("no data saved, load data first!")
@@ -572,41 +595,45 @@ class DataHandler():
 
     def plot(self, use_qt: bool = False):
 
-        import matplotlib
-        from neuropsy.viz.plot import plot_raw
-
-        events = np.array(
-            [self.df_exp['Mark for Picture Shown'].astype(int).to_numpy(),
-             self.df_exp['Mark for Picture Placed'].astype(int).to_numpy()])
-
-        event_ids = {
-            1: "picture shown",
-            2: "picture placed"
-        }
-
-        shading_onset = self.df_exp['Timestamp (s) for Picture Shown'].to_numpy(
-        )
-        shading_duration = self.df_exp['Timestamp (s) for Picture Placed'].to_numpy(
-        ) - self.df_exp['Timestamp (s) for Picture Shown'].to_numpy()
-
-        plot_raw(data=self.ieeg,
-                 events=events,
-                 event_ids=event_ids,
-                 ch_names=self.df_chan['name'].to_list(),
-                 fs=self._fs,
-                 shading=True,
-                 shading_onset=shading_onset,
-                 shading_duration=shading_duration,
-                 shading_desc=self.df_exp['Trial Identifier'].to_numpy(),
-                 use_qt=use_qt,
-                 title=f"Subject {self._subject_id} - {self._get_exp_phase_name()}",
-                 start=9,
-                 duration=9)
-
-        if use_qt:
-            matplotlib.use('Agg')
+        if self.ieeg is None:
+            print(f"No data loaded, use <DataHandler>.load() to load data.")
         else:
-            matplotlib.pyplot.show()
+            import matplotlib
+            from neuropsy.viz.plot import plot_raw
+
+            events = np.array(
+                [self.df_exp['Mark for Picture Shown'].astype(int).to_numpy(),
+                 self.df_exp['Mark for Picture Placed'].astype(int).to_numpy()])
+
+            event_ids = {
+                1: "picture shown",
+                2: "picture placed"
+            }
+
+            shading_onset = self.df_exp['Timestamp (s) for Picture Shown'].to_numpy(
+            )
+            shading_duration = self.df_exp['Timestamp (s) for Picture Placed'].to_numpy(
+            ) - self.df_exp['Timestamp (s) for Picture Shown'].to_numpy()
+
+            plot_raw(data=self.ieeg,
+                     events=events,
+                     event_ids=event_ids,
+                     ch_names=self.df_chan['name'].to_list(),
+                     fs=self._fs,
+                     shading=True,
+                     shading_onset=shading_onset,
+                     shading_duration=shading_duration,
+                     shading_desc=self.df_exp['Trial Identifier'].to_numpy(),
+                     use_qt=use_qt,
+                     title=f"Subject {self._subject_id} - {self._get_exp_phase_name()}",
+                     start=0,
+                     duration=9)
+
+            if use_qt:
+                matplotlib.pyplot.show(block=True)
+                matplotlib.use('Agg')
+            else:
+                matplotlib.pyplot.show()
 
     def copy(self):
         """Create a copy of the DataHandler object"""
@@ -709,3 +736,120 @@ class DataHandler():
             data.ieeg = np.delete(data.ieeg, idx, axis=0)
             data.df_chan = data.df_chan.drop(idx).reset_index(drop=True)
             return data
+
+    def create_raw(self):
+        # MNE info object will be used to create MNE Raw object
+        info = mne.create_info(
+            ch_names=self.df_chan['name'].to_list(),
+            ch_types=['seeg'] * len(self.df_chan['name'].to_list()),
+            sfreq=self._fs
+        )
+
+        # create events array (n_events, 3) with (sample, signal_value_preceding_sample, event_id)
+        events = np.array(
+            [np.ravel(np.array([self.df_exp['Mark for Picture Shown'].astype(int).to_numpy(), self.df_exp['Mark for Picture Placed'].astype(int).to_numpy()]).T),
+             np.zeros(len(self.df_exp) * 2, dtype=int),
+             np.array([1, 2] * len(self.df_exp), dtype=int)]
+        ).T
+
+        # create MNE Raw object
+        raw = mne.io.RawArray(self.ieeg, info)
+
+        # create mapping between event_id to event description
+        event_dict = {
+            1: "picture shown",
+            2: "picture placed"
+        }
+
+        # create annotations from events
+        annotations_from_events = mne.annotations_from_events(
+            events=events,
+            event_desc=event_dict,
+            sfreq=raw.info["sfreq"],
+            orig_time=raw.info["meas_date"],
+        )
+
+        # Create annotations for onset, duration and description arrays for trial shading
+        onset_arr = self.df_exp['Timestamp (s) for Picture Shown'].to_numpy(
+        )
+        duration_arr = self.df_exp['Timestamp (s) for Picture Placed'].to_numpy(
+        ) - onset_arr
+        description_arr = self.df_exp['Trial Identifier'].to_numpy()
+        annotations_trial_shading = mne.Annotations(
+            onset=onset_arr,
+            duration=duration_arr,
+            description=description_arr
+        )
+        annotations = mne.Annotations.__add__(
+            annotations_from_events, annotations_trial_shading)
+
+        # Add annotations to raw object
+        raw.set_annotations(annotations)
+        return raw
+
+    def create_epochs(self,
+                      raw: mne.io.BaseRaw = None,
+                      tmin: int | float = -1,
+                      tmax: int | float = 1,
+                      markers: list | tuple | np.ndarray = None,
+                      event_id: int = 10,
+                      event_desc: str = 'event'):
+        """create_epochs Create epochs from Raw object.
+
+        Args:
+            raw (mne.Raw): mne Raw object from which epochs will be created.
+            tmin (int | float): Time before onset of event to include in epoch.
+            tmax (int | float): Time after onset of event to include in epoch.
+            markers (list | tuple | np.ndarray): Event markers to identify epochs.
+            event_id (int, optional): Event id to assign to epochs. Defaults to 10.
+            event_desc (str, optional): Event description to assign to epochs. Defaults to 'event'.
+
+        Returns:
+            epochs (mne.Epochs): mne epochs object.
+        """
+        if raw == None:
+            if self.raw == None:
+                self.raw = self.create_raw()
+                raw = self.raw
+            else:
+                raw = self.raw
+
+        # create 2D array with zeros of same length as channel data array,
+        # this will be the stimulus channel
+        stim_arr = np.zeros((1, len(raw)))
+
+        # set indices to 10 where the markers are
+        stim_arr[0, markers] = event_id
+
+        # create info object for stimulus channel
+        info = mne.create_info(
+            ch_names=['STI_TMP'],
+            sfreq=raw.info['sfreq'],
+            ch_types=['stim'])
+
+        # create raw array with trigger channel
+        stim_raw = mne.io.RawArray(stim_arr, info)
+
+        # add stimulus channel to raw object
+        raw.add_channels([stim_raw], force_update_info=True)
+
+        # find events from stimulus channel
+        events = mne.find_events(raw, stim_channel="STI_TMP")
+        raw.drop_channels(['STI_TMP'])
+
+        # create mapping between event_id to event description
+        event_ids = {f'{event_desc}': event_id}
+
+        # create epochs including both first and last trial, with baseline correction
+        epochs = mne.Epochs(
+            raw,
+            events,
+            event_id=event_ids,
+            tmin=tmin,
+            tmax=tmax,
+            picks=['seeg'],
+            reject=None,
+            baseline=None,
+            preload=True
+        )
+        return epochs
