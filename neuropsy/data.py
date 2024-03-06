@@ -94,8 +94,8 @@ class DataHandler():
         # note:
         #   needed to load full raw .mat file if data is not saved
         #   and experiment and channel dataframes need to be created
-        self.filepath_matlab_raw = ''.join(
-            (self._path, "/sub", self._subject_id, ".mat"))
+        # self.filepath_matlab_raw = ''.join( [REMOVE] obsoloete since path is now explicitly set in load method
+        #     (self._path, "/sub", self._subject_id, ".mat"))
         if self._verbose:
             print("done")
 
@@ -106,11 +106,15 @@ class DataHandler():
         else:
             return self.ieeg.shape[0]
 
-    def _load_matlab_raw(self):
+    def _load_matlab_raw(self, path: str):
         try:
+            # if path is None or path == '':
+            #     load_path = self.filepath_matlab_raw
+            # else:
+            #     load_path = path
             if self._verbose:
-                print("loading raw data...")
-            return read_mat(self.filepath_matlab_raw)
+                print(f"loading raw data from {path}...")
+            return read_mat(path)
         except FileNotFoundError:
             print(
                 f"provided path does not contain any raw .mat file for subject {self._subject_id}, please provide a correct path.")
@@ -134,20 +138,21 @@ class DataHandler():
                     data_ieeg = pickle.load(f)
             # load raw data
             else:
-                if self._verbose:
-                    print(
-                        f"loading raw iEEG data from {repr(self.filepath_matlab_raw)}")
                 if self.full is None:
-                    self.full = self._load_matlab_raw()
+                    path_raw = ''.join(
+                        (load_path, "/sub", self._subject_id, ".mat"))
+                    self.full = self._load_matlab_raw(path=path_raw)
                 data_ieeg = self.full['data'][f'ieeg_data{self._exp_phase}']
         except FileNotFoundError:
             print(
                 f"Could not find file {repr(path_ieeg)}. Make sure you have saved the iEEG data first and the postfix is set correctly.")
             arg = input(
-                "Do you want to load the raw data instead? ([y]/n): ")
-            if arg == 'y' or arg == 'Y' or arg == '':
+                "Do you want to load the raw data instead? ([y]/n): ").strip().lower()
+            if arg == 'y' or arg == 'yes' or arg == '':
                 if self.full is None:
-                    self.full = self._load_matlab_raw()
+                    path_raw = ''.join(
+                        (load_path, "/sub", self._subject_id, ".mat"))
+                    self.full = self._load_matlab_raw(path=path_raw)
                 data_ieeg = self.full['data'][f'ieeg_data{self._exp_phase}']
             else:
                 data_ieeg = None
@@ -183,10 +188,12 @@ class DataHandler():
             print(
                 f"Could not find file {repr(path_df)}. Make sure you have saved the targets data first and the postfix is set correctly.")
             arg = input(
-                "Do you want to load the raw data instead? ([y]/n): ")
-            if arg == 'y' or arg == '':
+                "Do you want to load the raw data instead? ([y]/n): ").strip().lower()
+            if arg == 'y' or arg == 'yes' or arg == '':
                 if self.full is None:
-                    self.full = self._load_matlab_raw()
+                    path_raw = ''.join(
+                        (load_path, "/sub", self._subject_id, ".mat"))
+                    self.full = self._load_matlab_raw(path=path_raw)
                 df = self._get_targets(load_saved=False)
             else:
                 df = None
@@ -216,6 +223,8 @@ class DataHandler():
                 # cast data to dataframe
                 df = pd.DataFrame(self.full['data'][f'file{self._exp_phase}'], columns=[
                     'x_coordinate', 'y_coordinate', 'Picture Number', 'Reaction Time (RT)'])
+                # reaction time is computed
+                df = df.drop(columns=['Reaction Time (RT)'])
                 df['Picture Number'] = df['Picture Number'].astype(int)
                 # create new columns
                 # add subject ID
@@ -253,7 +262,7 @@ class DataHandler():
                                                == pic_num].index.to_list()
                     for i in range(len(idx)):
                         trial_identifiers_arr[idx[i]] = str(
-                            f'{str(i+1)}-{str(pic_num)}')
+                            f'{str(pic_num)}-{str(i+1)}')
                 df['Trial Identifier'] = trial_identifiers_arr
                 df['Trial Identifier'] = df['Trial Identifier'].str.decode(
                     'utf-8')
@@ -283,10 +292,12 @@ class DataHandler():
             print(
                 f"Could not find file {repr(path_df)}. Make sure you have saved the experiment data first and the postfix is set correctly.")
             arg = input(
-                "Do you want to load the raw data instead? ([y]/n): ")
-            if arg == 'y' or arg == '':
+                "Do you want to load the raw data instead? ([y]/n): ").strip().lower()
+            if arg == 'y' or arg == 'yes' or arg == '':
                 if self.full is None:
-                    self.full = self._load_matlab_raw()
+                    path_raw = ''.join(
+                        (load_path, "/sub", self._subject_id, ".mat"))
+                    self.full = self._load_matlab_raw(path=path_raw)
                 df = self._get_experiment_meta(load_saved=False)
             else:
                 df = None
@@ -314,7 +325,7 @@ class DataHandler():
                 if self._verbose:
                     print("creating dataframe with channel data from raw data")
                 filepath = ''.join(
-                    (self._path, "/sub", self._subject_id + "_chan.xlsx"))
+                    (load_path, "/sub", self._subject_id + "_chan.xlsx"))
                 df = pd.read_excel(filepath, engine='openpyxl')
                 # create True/False column for left hippocampal electrode
                 if self._verbose:
@@ -337,10 +348,12 @@ class DataHandler():
             print(
                 f"Could not find file {repr(path_df)}. Make sure you have saved the channel data first and the postfix is set correctly.")
             arg = input(
-                "Do you want to load the raw data instead? ([y]/n): ")
-            if arg == 'y' or arg == '':
+                "Do you want to load the raw data instead? ([y]/n): ").strip().lower()
+            if arg == 'y' or arg == 'yes' or arg == '':
                 if self.full is None:
-                    self.full = self._load_matlab_raw()
+                    path_raw = ''.join(
+                        (load_path, "/sub", self._subject_id, ".mat"))
+                    self.full = self._load_matlab_raw(path=path_raw)
                 df = self._get_channel_meta(load_saved=False)
             else:
                 df = None
