@@ -2,17 +2,17 @@ import pandas as pd
 import numpy as np
 
 
-def clean(df: pd.DataFrame, cols: (list, tuple, np.ndarray), num_std: int = 3, verbose: bool = False):
-    """clean Remove outliers in trials.
+def clean_outliers(df: pd.DataFrame, cols: (list, tuple, np.ndarray), num_std: int = 3, verbose: bool = False):
+    """clean_outliers Remove outliers in given columns.
 
     Args:
         df (pd.DataFrame): Dataframe with data to clean.
-        cols (list | tuple | np.array): _description_.
-        num_std (int, optional): _description_. Defaults to 3.
-        verbose (bool, optional): _description_. Defaults to False.
+        cols (list | tuple | np.array): Columns to inspect for outliers.
+        num_std (int, optional): Number of standard deviations to use to determine outliers. Defaults to 3.
+        verbose (bool, optional): Print verbose to stdout. Defaults to False.
 
     Returns:
-        _type_: _description_
+        df (pd.DataFrame): Dataframe with removed outliers.
     """
     def _determine_outlier_thresholds_std(df, col_name, num_std):
         upper_boundary = df[col_name].mean(
@@ -32,20 +32,19 @@ def clean(df: pd.DataFrame, cols: (list, tuple, np.ndarray), num_std: int = 3, v
     def _get_outlier_indices(df, cols, num_std):
         data = []
         for col_name in cols:
-            if col_name != 'Outcome':
-                outliers_ = _check_outliers_std(df, col_name, num_std)
-                count = None
-                lower_limit, upper_limit = _determine_outlier_thresholds_std(
-                    df, col_name, num_std)
-                if outliers_:
-                    count = df[(df[col_name] > upper_limit) | (
-                        df[col_name] < lower_limit)][col_name].count()
-                    indices = df[(df[col_name] > upper_limit) | (
-                        df[col_name] < lower_limit)].index.to_numpy()
-                outliers_status = _check_outliers_std(
-                    df, col_name, num_std)
-                data.append([outliers_, outliers_status, count,
-                            col_name, lower_limit, upper_limit])
+            outliers_ = _check_outliers_std(df, col_name, num_std)
+            count = None
+            lower_limit, upper_limit = _determine_outlier_thresholds_std(
+                df, col_name, num_std)
+            if outliers_:
+                count = df[(df[col_name] > upper_limit) | (
+                    df[col_name] < lower_limit)][col_name].count()
+                indices = df[(df[col_name] > upper_limit) | (
+                    df[col_name] < lower_limit)].index.to_numpy()
+            outliers_status = _check_outliers_std(
+                df, col_name, num_std)
+            data.append([outliers_, outliers_status, count,
+                        col_name, lower_limit, upper_limit])
         if verbose:
             from tabulate import tabulate
             print(f"Outliers (using {num_std} Standard Deviation)")
@@ -92,7 +91,7 @@ def clean(df: pd.DataFrame, cols: (list, tuple, np.ndarray), num_std: int = 3, v
     # start cleaning
     len_before = len(df)
     if verbose:
-        print(f"cleaning {len_before} trials")
+        print(f"cleaning outliers in {len_before} trials")
 
     # remove outliers
     idx = _get_outlier_indices(
@@ -104,21 +103,72 @@ def clean(df: pd.DataFrame, cols: (list, tuple, np.ndarray), num_std: int = 3, v
         print(f"found outliers in indices {idx}")
     df = df.drop(idx, inplace=False).reset_index(drop=True)
 
-    # remove NaNs
-    idx = df[df.isna().any(axis=1)].index.to_numpy()
+    # if verbose:
+    #     print(f"removed {len_before - len(df)} trials")
+    #     print(f"remaining {len(df)} trials")
+
+    return df, idx
+
+
+def clean_nan(df: pd.DataFrame, cols: (list, tuple, np.ndarray), verbose: bool = False):
+    """clean_nan Remove NaNs in given columns.
+
+    Args:
+        df (pd.DataFrame): Dataframe with data to clean.
+        cols (list | tuple | np.array): Columns to inspect for NaNs.
+        verbose (bool, optional): Print verbose to stdout. Defaults to False.
+
+    Returns:
+        df (pd.DataFrame): Dataframe with removed NaNs.
+    """
+    # check arguments
+    if not (isinstance(verbose, bool) or verbose is None):
+        raise ValueError(
+            f"verbose must be True or False or None, got {type(verbose)}")
+    elif verbose is None:
+        verbose = False
+    else:
+        pass
+    if isinstance(df, pd.DataFrame):
+        if df.shape[0] == 0:
+            raise ValueError(
+                f"df must not be empty, got {df.shape[0]} rows")
+    else:
+        raise ValueError(
+            f"df must be a pandas DataFrame, got {type(df)}")
+    if isinstance(cols, list) or isinstance(cols, tuple) or isinstance(cols, np.ndarray):
+        if len(cols) == 0:
+            raise ValueError(
+                f"cols must not be empty, got {len(cols)} columns")
+        else:
+            for col in cols:
+                if not col in df.columns:
+                    raise ValueError(
+                        f"column {repr(col)} not found in df")
+    else:
+        raise ValueError(
+            f"cols must be a list, tuple, or array, got {type(cols)}")
+
+    # start cleaning
+    len_before = len(df[cols])
     if verbose:
-        print(f"found NaNs in indices {idx}")
+        print(f"cleaning NaNs in {len_before} trials")
+
+    # find NaNs in provided columns
+    idx = df[df[cols].isna().any(axis=1)].index.to_numpy()
+    if verbose:
+        print(f"found NaNs at indices {idx}")
     df = df.drop(idx, inplace=False).reset_index(drop=True)
 
     if verbose:
         print(f"removed {len_before - len(df)} trials")
         print(f"remaining {len(df)} trials")
 
-    return df
+    return df, idx
 
 
-def remove_artifacts():
-    """remove_artifacts Remove artifacts in trials.
+def remove_artifacts_manually():
+    """remove_artifacts_manually Remove artifacts in trials manually by inspecting plots for interictal epileptic discharges (IEDs).
 
     [TODO]
     """
@@ -130,7 +180,7 @@ def filter(data: np.ndarray, filter_dict: dict = {"order": 4, "cutoff": 500, "fs
 
     [TODO]
     """
-    from neuropsy.utils.digital_filter import digital_filter
+    from neuropsy.utils.filters import digital_filter
 
     # check arguments
     if isinstance(data, np.ndarray):
@@ -307,7 +357,7 @@ def reference(data: np.ndarray, method: str, ch_names: (list, tuple, np.ndarray)
 
         # iterate over unique electrodes
         removed_indices = []
-        remove_ch_names = []
+        removed_ch_names = []
         for electrode in unique_electrodes:
             indices = np.where(tmp_ch_names == electrode)[0]
             # iterate over N-1 contacts for each electrode
@@ -323,18 +373,18 @@ def reference(data: np.ndarray, method: str, ch_names: (list, tuple, np.ndarray)
             # remove the last channel depending on the direction
             if direction == 'right':
                 removed_indices.append(indices[-1])
-                remove_ch_names.append(ch_names[indices[-1]])
+                removed_ch_names.append(ch_names[indices[-1]])
             elif direction == 'left':
                 removed_indices.append(indices[0])
-                remove_ch_names.append(ch_names[indices[0]])
+                removed_ch_names.append(ch_names[indices[0]])
         # remove the first or last contact (channel) in each electrode depending on the direction of the subtraction
         if verbose:
             print(f"removing {len(removed_indices)} channels from data")
-            print(f"removing channels: {remove_ch_names}")
+            print(f"removing channels: {removed_ch_names}")
         data = np.delete(data, removed_indices, axis=0)
         if verbose:
             print("successfully re-referenced data!")
-        return data, removed_indices
+        return data, removed_ch_names, removed_indices
 
     def _laplacian(data: np.ndarray, ch_names: (list, np.array), verbose: bool):
         """Laplacian Reference channels using the average of neighbouring channels as reference.
@@ -376,7 +426,7 @@ def reference(data: np.ndarray, method: str, ch_names: (list, tuple, np.ndarray)
 
         # iterate over unique electrodes
         removed_indices = []
-        remove_ch_names = []
+        removed_ch_names = []
         for electrode in unique_electrodes:
             indices = np.where(tmp_ch_names == electrode)[0]
             # iterate over N-2 contacts for each electrode
@@ -387,16 +437,16 @@ def reference(data: np.ndarray, method: str, ch_names: (list, tuple, np.ndarray)
             # remove the first and last channels
             removed_indices.append(indices[0])
             removed_indices.append(indices[-1])
-            remove_ch_names.append(ch_names[indices[0]])
-            remove_ch_names.append(ch_names[indices[-1]])
+            removed_ch_names.append(ch_names[indices[0]])
+            removed_ch_names.append(ch_names[indices[-1]])
         # remove the first and last channels in each electrode
         if verbose:
             print(f"removing {len(removed_indices)} channels from data")
-            print(f"removing channels: {remove_ch_names}")
+            print(f"removing channels: {removed_ch_names}")
         data = np.delete(data, removed_indices, axis=0)
         if verbose:
             print("successfully re-referenced data!")
-        return data, removed_indices
+        return data, removed_ch_names, removed_indices
 
     def _average(data: np.ndarray):
         """average Reference the data to the average of all channels.
@@ -499,20 +549,20 @@ def reference(data: np.ndarray, method: str, ch_names: (list, tuple, np.ndarray)
                           ref_channel=ref_channel,
                           verbose=verbose)
     elif method == 'bipolar':
-        data, removed_indices = _bipolar(data=data,
-                                         ch_names=ch_names,
-                                         direction=direction,
-                                         verbose=verbose)
+        data, removed_ch_names, removed_indices = _bipolar(data=data,
+                                                           ch_names=ch_names,
+                                                           direction=direction,
+                                                           verbose=verbose)
     elif method == 'laplacian':
-        data, removed_indices = _laplacian(data=data,
-                                           ch_names=ch_names,
-                                           verbose=verbose)
+        data, removed_ch_names, removed_indices = _laplacian(data=data,
+                                                             ch_names=ch_names,
+                                                             verbose=verbose)
     elif method == 'average':
         data = _average(data=data)
     elif method == 'median':
         data = _median(data=data)
 
     if method == 'bipolar' or method == 'laplacian':
-        return data, removed_indices
+        return data, removed_ch_names, removed_indices
     else:
         return data
