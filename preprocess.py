@@ -289,10 +289,13 @@ if __name__ == '__main__':
                                     f"Cleaning outliers in columns {cols} with {num_std} standard deviations...")
                             cols = cols.strip().split(',')
                             cols = [col.strip() for col in cols]
-                            data.df_exp, idx_outliers = prep.clean_outliers(df=data.df_exp,
-                                                                            cols=cols,
-                                                                            num_std=3,
-                                                                            verbose=args.verbose)
+                            _, idx_outliers = prep.clean_outliers(df=data.df_exp,
+                                                                  cols=cols,
+                                                                  num_std=3,
+                                                                  verbose=args.verbose)
+                            # add new column to dataframe indicating if trial is an outlier
+                            data.df_exp['outlier'] = False
+                            data.df_exp.loc[idx_outliers, 'outlier'] = True
                             # save preprocessing information
                             info_dict[f'subject {subject_id}']['cleaning']['outliers']['applied'] = True
                             info_dict[f'subject {subject_id}']['cleaning']['outliers']['indices'] = [
