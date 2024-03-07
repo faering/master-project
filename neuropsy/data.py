@@ -463,6 +463,24 @@ class DataHandler():
                 if self.df_exp is None:
                     print("experiment data not loaded")
                 print("done")
+
+            if self.df_exp is not None:
+                if 'Trial Category' not in self.df_exp.columns.to_list():
+                    try:
+                        filename = ''.join(
+                            (load_path, "/sub", self._subject_id, "_trial_labels.csv"))
+                        if self._verbose:
+                            print(
+                                f"Trying to load trial category from location {filename}...")
+                        series = pd.read_csv(filename)
+                        self.df_exp = pd.concat([self.df_exp, series], axis=1)
+                        if self._verbose:
+                            print("Loaded trial category from saved file")
+                    except FileNotFoundError as fe:
+                        if self._verbose:
+                            print("Could not find file with trial category!")
+                        print(fe)
+
         # load channel metadata
         if load_chan:
             if self._verbose:
