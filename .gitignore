@@ -1,6 +1,8 @@
 # Ignore folder
 data/
 fBOSC/
+fBOSC/
+results/
 
 # Ignore VSCode settings
 .vscode/
