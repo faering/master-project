@@ -6,6 +6,242 @@ import math
 import mne
 from mne.time_frequency import tfr_morlet
 from mne.stats import permutation_cluster_1samp_test
+import pywt
+
+
+# [REMOVE] drop this function???
+def get_trial_markers(df, col) -> list:
+    markers = []
+    pass
+
+
+# [REMOVE] now in data.py module -> Class(DataHandler)->method(create_epochs)
+def create_epochs(raw, tmin: int | float, tmax: int | float, markers: list | tuple | np.ndarray, event_id: int = 10, event_desc: str = 'event'):
+    """create_epochs Create epochs from raw data.
+
+    Args:
+        raw (mne.Raw): mne Raw object from which epochs will be created.
+        tmin (int | float): Time before onset of event to include in epoch.
+        tmax (int | float): Time after onset of event to include in epoch.
+        markers (list | tuple | np.ndarray): Event markers to identify epochs.
+        event_id (int, optional): Event id to assign to epochs. Defaults to 10.
+        event_desc (str, optional): Event description to assign to epochs. Defaults to 'event'.
+
+    Returns:
+        epochs (mne.Epochs): mne epochs object.
+    """
+    # create 2D array with zeros of same length as channel data array,
+    # this will be the stimulus channel
+    stim_arr = np.zeros((1, len(raw)))
+
+    # set indices to 10 where the markers are
+    stim_arr[0, markers] = event_id
+
+    # create info object for stimulus channel
+    info = mne.create_info(
+        ch_names=['STI_TMP'],
+        sfreq=raw.info['sfreq'],
+        ch_types=['stim'])
+
+    # create raw array with trigger channel
+    stim_raw = mne.io.RawArray(stim_arr, info)
+
+    # add stimulus channel to raw object
+    raw.add_channels([stim_raw], force_update_info=True)
+
+    # find events from stimulus channel
+    events = mne.find_events(raw, stim_channel="STI_TMP")
+    raw.drop_channels(['STI_TMP'])
+
+    # create mapping between event_id to event description
+    event_ids = {f'{event_desc}': event_id}
+
+    # create epochs including both first and last trial, with baseline correction
+    epochs = mne.Epochs(
+        raw,
+        events,
+        event_id=event_ids,
+        tmin=tmin,
+        tmax=tmax,
+        picks=['seeg'],
+        reject=None,
+        baseline=None,
+        preload=True
+    )
+    return epochs
+
+
+def apply_baseline(epoch_power: np.ndarray, baseline_power: np.ndarray, method: str = 'mean') -> np.ndarray:
+    """apply_baseline Baseline correct a single epoch.
+
+    Apply baseline correction on time-frequency power array for a single epoch, given the time-frequency power
+    for a baseline period.
+
+    Available methods include:
+        - 'mean'
+        - 'ratio'
+        - 'logratio'
+        - 'zscore'
+        - 'zlogratrio'
+
+    [FIXME]
+    - add the option to apply baseline correction using raw signal, ie. mne Epochs object.
+
+    Args:
+        epoch_power (np.ndarray): The epoch to baseline correct. Should have shape [len(frequencies), len(time)]
+        baseline_power (np.ndarray): the baseline to use for correction. Should have shape [len(frequencies), len(time)]
+        method (str, optional): The method to use for baseline correcting the epoch. Defaults to 'mean'.
+
+    Returns:
+        epoch_corrected (nd.array): Has same dimensions as input epoch_power [len(frequencies), len(time)].
+    """
+    try:
+        # use desired baseline correction method
+        if method == 'mean':
+            def func(d, m):
+                d = (d.T - m).T  # subtract mean of baseline
+                return d
+        elif method == 'ratio':
+            def func(d, m):
+                d = (d.T / m).T  # divide by mean of baseline
+                return d
+        elif method == 'logratio':
+            def func(d, m):
+                d = (d.T / m).T  # divide by standard deviation of baseline
+                # log transform the epoch [FIXME] perhaps log10 should be used?
+                d = np.log(d)
+                return d
+        elif method == "zscore":
+            def func(d, m, s):
+                d = (d.T - m).T  # subtract mean of baseline
+                d = (d.T / s).T  # divide by standard deviation of baseline
+                return d
+        elif method == "zlogratio":
+            def func(d, m, s):
+                d = (d.T / m).T  # divide by mean of baseline
+                # log transform the epoch [FIXME] perhaps log10 should be used?
+                d = np.log(d)
+                d = (d.T / s).T  # divide by standard deviation of baseline
+                return d
+        else:
+            raise ValueError(
+                "method should be 'mean', 'ratio', 'logratio', 'zscore', or 'zlogratio'"
+            )
+
+        # calculate mean of baseline across time, vector output = [freq_dim,]
+        mean = np.mean(baseline_power, axis=1)
+
+        # baseline correct according to the desired method
+        if method == 'zscore' or method == 'zlogratio':
+            # calculate the standard deviation of baseline across time. Vector output = [freq_dim,]
+            std = np.std(baseline_power, axis=1)  # [IMPORTANT] CORRECT
+            epoch_corrected = func(d=epoch_power, m=mean, s=std)
+        else:
+            epoch_corrected = func(d=epoch_power, m=mean)
+        return epoch_corrected
+
+    except Exception as exc:
+        raise Exception(
+            f"Encountered an exception during baseline correction, error [{exc}]")
+
+
+def compute_fft(signal, fs, output: str = 'mag'):
+    """compute_fft Compute the Fast Fourier Transform of a signal.
+
+    Args:
+        signal (_type_): Signal to apply FFT.
+        fs (_type_): Sampling frequency.
+        output (str): Format of the output, choices are 'psd' for power spectral density,
+                      and 'mag' for magnitude spectrum. Defaults to 'mag'. 
+
+    Returns:
+        x (np.array): Frequency vector, one-sided.
+        y (np.ndarray): The complex discrete Fourier transform. 
+    """
+    from scipy.fft import fft, fftfreq
+
+    y = fft(signal)                 # FFT
+    xf = fftfreq(signal.size, 1/fs)  # Frequency vector
+    xf = xf[xf >= 0]
+    y = np.abs(np.ravel(y))[:len(xf)]
+
+    if output == 'mag':
+        return xf, y
+    elif output == 'psd':
+        psd = 20*np.log10(y)
+        return xf, psd
+
+
+# own implementation of morlet wavelet
+def morlet(f0, n, t, return_gaussian=False):
+    """
+    Complex Morlet wavelet with frequency f and number of cycles n.
+    """
+    import warnings
+    warnings.filterwarnings(action="error", category=np.ComplexWarning)
+    with np.errstate(invalid='raise'):
+        try:
+            # create complex sine wave
+            sine_wave = np.exp(2 * 1j * np.pi * f0 * t, dtype=np.complex128)
+
+            # create gaussian envelope
+            sigma = n / (2 * np.pi * f0)  # standard deviation for gaussian
+            gaussian = np.exp(-t**2 / (2 * sigma**2))
+
+            # create wavelet
+            wavelet = np.multiply(sine_wave, gaussian, dtype=np.complex128)
+
+            if return_gaussian:
+                return wavelet, gaussian
+            else:
+                return wavelet
+        except FloatingPointError as e:
+            print(f"NumPy warning: {e}")
+        except Exception as e:
+            print(f"Exception: {e}")
+
+
+# used for PyWavelets
+def get_scales(freqs, wavelet, fs):
+    frequencies = np.array(freqs) / fs  # normalise frequencies
+    return pywt.frequency2scale(wavelet, frequencies)
+
+# [FIXME] finish function code
+
+
+def compute_tfr(
+        data,
+        fs: int = 512,
+        freqs: list | np.ndarray = np.arange(1, 40)):
+    """compute_tfr _summary_
+
+    _extended_summary_
+
+    Args:
+        data (_type_): _description_
+        fs (int, optional): _description_. Defaults to 512.
+        freqs (list | np.ndarray, optional): _description_. Defaults to np.arange(1, 40).
+    """
+    # ********** CHECK INPUTS **********#
+    if data is None:
+        raise ValueError('data must be provided.')
+    elif not isinstance(data, (list, np.ndarray)):
+        raise ValueError(
+            f'data must be a list or numpy array, got {type(data)}.')
+    if fs is None:
+        raise ValueError('fs must be provided.')
+    elif not isinstance(fs, int):
+        raise ValueError(f'fs must be an integer, got {type(fs)}.')
+    if freqs is None:
+        raise ValueError('freqs must be provided.')
+    elif not isinstance(freqs, (list, np.ndarray)):
+        raise ValueError(
+            f'freqs must be a list or numpy array, got {type(freqs)}.')
+    elif not all(isinstance(f, (int, float)) for f in freqs):
+        raise ValueError(
+            'freqs must be a list or numpy array of integers or floats.')
+
+    # ********** COMPUTE TFR **********#
 
 
 def tfr_clust_perm_test(
@@ -510,6 +746,8 @@ def tfr_clust_perm_test(
             nrows=nrows_plot, ncols=ncols_plot, figsize=figsize, sharex=True, sharey=True)
         axs = axs.flatten()
         for _ch in range(len(epochs_a.ch_names)):
+            # [INFO] if it should be a blue (vmin) and red (vmax) plot, then change graymap to RdBu_r and second plot only plots contour lines (eg. yellow) around significant clusters
+            # [INFO] maybe change to plt.subplot(s) and use plt.add_subplot() for each channel
             # plot grayscale TFR
             axs[_ch].imshow(
                 T_obs[_ch],
@@ -534,34 +772,8 @@ def tfr_clust_perm_test(
             axs[_ch].set_ylabel("Frequency (Hz)", fontsize=12)
             axs[_ch].set_title(
                 f"Channel {epochs_a.ch_names[_ch]}", fontsize=14)
-        # for _ch in range(epochs_power.shape[1]):
-        #     plt.subplot(1, len(epochs_a.ch_names), _ch + 1)
-        #     # plot grayscale TFR
-        #     plt.imshow(
-        #         T_obs[_ch],
-        #         cmap=plt.cm.gray,
-        #         extent=[times[0], times[-1], freqs[0], freqs[-1]],
-        #         aspect="auto",
-        #         origin="lower",
-        #         vmin=vmin_ft,
-        #         vmax=vmax_ft,
-        #     )
-        #     # plot significant clusters in colour
-        #     plt.imshow(
-        #         T_obs_plot[_ch],
-        #         cmap=plt.cm.RdBu_r,
-        #         extent=[times[0], times[-1], freqs[0], freqs[-1]],
-        #         aspect="auto",
-        #         origin="lower",
-        #         vmin=vmin_ft,
-        #         vmax=vmax_ft,
-        #     )
-        #     plt.colorbar()
-        #     plt.xlabel("Time (ms)")
-        #     plt.ylabel("Frequency (Hz)")
-        #     plt.title(f"Channel {tfr_epochs_a.ch_names[_ch]}")
         plt.suptitle(
-            f"Subject {subject_id} Cluster Permutation Test (p-value = {p_value})", fontsize=16, y=1.05)
+            f"Subject {subject_id} Cluster Permutation Test (p-value = {p_value})", fontsize=16, y=y_suptitle)
         # don't show empty axes
         if len(axs) != len(epochs_a.ch_names):
             for _ch in range(len(axs) - len(epochs_a.ch_names)):
