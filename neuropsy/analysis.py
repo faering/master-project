@@ -134,7 +134,7 @@ def apply_baseline(epoch_power: np.ndarray, baseline_power: np.ndarray, method: 
         # baseline correct according to the desired method
         if method == 'zscore' or method == 'zlogratio':
             # calculate the standard deviation of baseline across time. Vector output = [freq_dim,]
-            std = np.std(baseline_power, axis=1)  # [IMPORTANT] CORRECT
+            std = np.std(baseline_power, axis=1)
             epoch_corrected = func(d=epoch_power, m=mean, s=std)
         else:
             epoch_corrected = func(d=epoch_power, m=mean)
