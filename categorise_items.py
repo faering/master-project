@@ -14,8 +14,8 @@ import neuropsy as nps
 # ******** FUNCTIONS ********
 def parse_args():
     parser = ArgumentParser(prog='categorise_items.py',
-                            description='Categorise items from experiment for further analysis',
-                            epilog="Done per subject individually, the user is asked to enter the items to keep out of a total of 50 items.")
+                            description='Categorise items from experiment for further analysis.',
+                            epilog="Done per subject individually, the user will define categories and put items into said categories.")
     parser.add_argument('-d', '--path', type=str,
                         help='Path to data folder with subject data')
     parser.add_argument('-ep', '--exp-phase', nargs='?', const=1, type=int, default=2,
@@ -44,7 +44,6 @@ if __name__ == '__main__':
 
     # init variables
     continue_selecting = True
-    continue_trial_no = True  # (optional)
     subject_id = None
     category_names_list = []
     category_dict = {}
@@ -303,7 +302,7 @@ if __name__ == '__main__':
                                 axs[i].set_xlabel('Trial', fontsize=10)
                                 # only set y1 ylabel for first plot
                                 axs[0].set_ylabel(
-                                    'Error ||v||^2', fontsize=10, color='dodgerblue')
+                                    'Error', fontsize=10, color='dodgerblue')
                                 # only set y2 label for last plot
                                 if i == n_items_to_plot-1:
                                     ax2.set_ylabel(
@@ -489,7 +488,7 @@ if __name__ == '__main__':
                             axs[i].set_xlabel('Trial', fontsize=10)
                             # only set y1 ylabel for first plot
                             axs[0].set_ylabel(
-                                'Error ||v||^2', fontsize=10, color='dodgerblue')
+                                'Error', fontsize=10, color='dodgerblue')
                             # only set y2 label for last plot
                             if i == n_items_to_plot-1:
                                 ax2.set_ylabel(
@@ -502,7 +501,7 @@ if __name__ == '__main__':
                         # save figure
                         if bool_save_fig:
                             full_save_path = os.path.join(
-                                save_path, f"subject_{subject_id}_items_{item_numbers[0]}-{item_numbers[-1]}_labelled.png")
+                                save_path, f"subject_{subject_id}_items_{item_numbers[0]}-{item_numbers[-1]}_item_labels.png")
                             print(f"Saving figure at {full_save_path}...")
                             fig.savefig(full_save_path, dpi=300,
                                         bbox_inches='tight')
@@ -561,8 +560,6 @@ if __name__ == '__main__':
                 elif inp_continue == 'y' or inp_continue == 'yes' or inp_continue == '':
                     # Reset variables
                     subject_id = None
-                    items_to_keep_list = []
-                    trial_numbers_list = []
                     continue
                 else:
                     raise ValueError(
@@ -573,8 +570,6 @@ if __name__ == '__main__':
                 print(traceback.format_exc())
                 # Reset variables
                 subject_id = None
-                items_to_keep_list = []
-                trial_numbers_list = []
                 continue
     except KeyboardInterrupt:
         print("Interrupted by user!")
