@@ -342,6 +342,8 @@ class DataHandler():
                 idx = np.where(df['DK_ROI'].str.contains(regex))[0]
                 df['HC right'] = False
                 df.loc[idx, 'HC right'] = True
+                # add channel names to self.ch_names
+                self.ch_names = df['name'].to_list()
                 if self._verbose:
                     print("created channel dataframe")
         except FileNotFoundError:
@@ -756,6 +758,7 @@ class DataHandler():
                     f"keeping channels {self.df_chan.loc[~self.df_chan.index.isin(idx)]['name'].to_list()}")
             self.ieeg = np.delete(self.ieeg, idx, axis=0)
             self.df_chan = self.df_chan.drop(idx).reset_index(drop=True)
+            self.ch_names = self.df_chan['name'].to_list()
         else:
             if verbose:
                 print("returning copy of DataHandler object with selected channels...")
@@ -763,9 +766,10 @@ class DataHandler():
                     f"removing channels {self.df_chan.loc[idx]['name'].to_list()}")
                 print(
                     f"keeping channels {self.df_chan.loc[~self.df_chan.index.isin(idx)]['name'].to_list()}")
-            data = self.copy()
+            data = self.copy()  # deepcopy
             data.ieeg = np.delete(data.ieeg, idx, axis=0)
             data.df_chan = data.df_chan.drop(idx).reset_index(drop=True)
+            self.ch_names = self.df_chan['name'].to_list()
             return data
 
     def create_raw(self):
@@ -816,6 +820,8 @@ class DataHandler():
 
         # Add annotations to raw object
         raw.set_annotations(annotations)
+        # save raw object
+        self.raw = raw
         return raw
 
     def create_epochs(self,
@@ -884,3 +890,25 @@ class DataHandler():
             preload=True
         )
         return epochs
+
+    def average(self, method: str = 'epochs'):
+        """average Compute average of ieeg data
+
+        Args:
+            method (str, optional): Compute across epochs or across entire self.ieeg object. Defaults to 'epochs'.
+        """
+        if self.ieeg is None:
+            print("No ieeg data found, use <DataHandler>.load() to load data.")
+            return
+        else:
+            if method == 'epochs':
+                if self.epochs:
+                    # [FIXME] perhaps wrong to compute across all epochs
+                    averages = self.epochs.average()
+                else:
+                    print(
+                        "No epochs found, use <DataHandler>.create_epochs() to create epochs.")
+                    return
+            else:
+                averages = self.ieeg.mean(axis=0)
+            return averages
