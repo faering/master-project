@@ -206,7 +206,55 @@ def get_scales(freqs, wavelet, fs):
     frequencies = np.array(freqs) / fs  # normalise frequencies
     return pywt.frequency2scale(wavelet, frequencies)
 
-# [FIXME] finish function code
+
+def check_trials(df, col_name, tmin, tmax, baseline):
+    # Check if any trials are too short for the given tmax
+    print(f"Checking if any trials are too short for tmax = {tmax} ...")
+    idx_too_short = df[df['Reaction Time (computed)'] <= tmax].index.to_list()
+    if len(idx_too_short) > 0:
+        labels_too_short = df.loc[idx_too_short, col_name].to_list()
+        dict_too_short = {}
+        for i, label in zip(idx_too_short, labels_too_short):
+            if label not in dict_too_short.keys():
+                dict_too_short[label] = 1
+            else:
+                dict_too_short[label] += 1
+        for key, value in dict_too_short.items():
+            print(f"{value} trials in condition {repr(key)} too short.")
+    else:
+        print("All trials are longer than tmax.")
+
+    # check if any trials are too close to each other wrt. tmin and baseline
+    print(
+        f"Checking if any trials are too close to each other for tmin = {tmin} s and baseline tmin = {np.min(baseline)} s ...")
+    idx_too_close = []
+    for i, time_placed in enumerate(df['Timestamp (s) for Picture Placed']):
+        if i == len(df) - 1:
+            break
+        time_between = (df['Timestamp (s) for Picture Shown']
+                        [i+1] - time_placed)
+        if time_between < abs(tmin) + .2:  # add 200 ms
+            # print(f"{time_between:.2f} s is not enough time between trials {repr(data.df_exp['Trial Identifier'][i+1])} and {repr(data.df_exp['Trial Identifier'][i])} for the chosen tmin ({np.min(baseline)} s), removing trial {repr(data.df_exp['Trial Identifier'][i+1])} with condition {repr(data.df_exp['Condition'][i+1])}.")
+            idx_too_close.append(i+1)
+        elif time_between < abs(np.min(baseline)) + .2:  # add 200 ms
+            # print(f"{time_between:.2f} s is not enough time between trials {repr(data.df_exp['Trial Identifier'][i+1])} and {repr(data.df_exp['Trial Identifier'][i])} for the chosen baseline tmin ({np.min(baseline)} s), removing trial {repr(data.df_exp['Trial Identifier'][i+1])} with condition {repr(data.df_exp['Condition'][i+1])}.")
+            idx_too_close.append(i+1)
+    if len(idx_too_close) > 0:
+        labels_too_close = df.loc[idx_too_close, col_name].to_list()
+        dict_too_close = {}
+        for i, label in zip(idx_too_close, labels_too_close):
+            if label not in dict_too_close.keys():
+                dict_too_close[label] = 1
+            else:
+                dict_too_close[label] += 1
+        for key, value in dict_too_short.items():
+            print(f"{value} trials in condition {repr(key)} too close.")
+    else:
+        print("All trials are far enough apart.")
+
+    return idx_too_short, idx_too_close
+
+# [INFO] Not finished
 
 
 def compute_tfr(
@@ -242,6 +290,8 @@ def compute_tfr(
             'freqs must be a list or numpy array of integers or floats.')
 
     # ********** COMPUTE TFR **********#
+
+# [REMOVE] Not used
 
 
 def tfr_clust_perm_test(
