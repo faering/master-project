@@ -1,3 +1,6 @@
+import matplotlib.pyplot as plt
+from mne.io.constants import FIFF
+import neuropsy as npsy
 import os
 import numpy as np
 import re
@@ -380,7 +383,7 @@ class DataHandler():
             raise ValueError(
                 f"exp_phase must be 1, 2, 3 or 4, got {self._exp_phase}")
 
-    def load(self, path: str = None, load_saved: bool = False, postfix: str = '', load_ieeg: bool = True, load_exp: bool = True, load_chan: bool = True, load_targets: bool = True, verbose: bool = None):
+    def load(self, path: str = None, load_saved: bool = False, postfix: str = '', load_ieeg: bool = True, load_exp: bool = True, load_chan: bool = True, load_targets: bool = True, postfix_ieeg: str = None, postfix_exp: str = None, postfix_chan: str = None, postfix_targets: str = None, verbose: bool = None):
         """Load data as defined by path, subject_id, and exp_phase"""
         # check arguments
         if isinstance(verbose, bool):
@@ -400,6 +403,18 @@ class DataHandler():
             raise ValueError(f"postfix must be a string, got {type(postfix)}")
         elif postfix == None:
             postfix = ''
+        if not (isinstance(postfix_ieeg, str) or postfix_ieeg is None):
+            raise ValueError(
+                f"postfix_ieeg must be a string, got {type(postfix_ieeg)}")
+        if not (isinstance(postfix_exp, str) or postfix_exp is None):
+            raise ValueError(
+                f"postfix_exp must be a string, got {type(postfix_exp)}")
+        if not (isinstance(postfix_chan, str) or postfix_chan is None):
+            raise ValueError(
+                f"postfix_chan must be a string, got {type(postfix_chan)}")
+        if not (isinstance(postfix_targets, str) or postfix_targets is None):
+            raise ValueError(
+                f"postfix_targets must be a string, got {type(postfix_targets)}")
         if not isinstance(load_ieeg, bool):
             raise ValueError(
                 f"load_ieeg must be True or False, got {type(load_ieeg)}")
@@ -433,68 +448,119 @@ class DataHandler():
         if load_ieeg:
             if self._verbose:
                 print("loading iEEG data...")
-            self.ieeg = self._get_ieeg(
-                path=load_path, load_saved=load_saved, postfix=postfix)
+            if postfix_ieeg is not None:
+                pf = postfix_ieeg
+            else:
+                pf = postfix
             if self._verbose:
-                if self.ieeg is not None:
-                    print("use <DataHandler>.ieeg to access intracranial EEG data")
-                if self.ieeg is None:
-                    print("iEEG data not loaded")
-                print("done")
+                print("trying to load file: ", ''.join(
+                    (load_path, "/sub", self._subject_id, "_ieeg", f"{'_' if pf != '' else ''}{pf}", ".pkl")))
+            try:
+                self.ieeg = self._get_ieeg(
+                    path=load_path, load_saved=load_saved, postfix=pf)
+                if self._verbose:
+                    if self.ieeg is not None:
+                        print(
+                            "use <DataHandler>.ieeg to access intracranial EEG data")
+                    if self.ieeg is None:
+                        print("iEEG data not loaded")
+                    print("done")
+            except FileNotFoundError as fe:
+                print(
+                    f"Could not find file with iEEG data! {fe}")
+                self.ieeg = None
         # load picture targets metadata
         if load_targets:
             if self._verbose:
                 print("loading picture target data...")
-            self.df_targets = self._get_targets(
-                path=load_path, load_saved=load_saved, postfix=postfix)
+            if postfix_targets is not None:
+                pf = postfix_targets
+            else:
+                pf = postfix
             if self._verbose:
-                if self.df_targets is not None:
-                    print("use <DataHandler>.df_targets to access targets dataframe")
-                if self.df_targets is None:
-                    print("target data not loaded")
-                print("done")
+                print("trying to load file: ", ''.join(
+                    (load_path, "/sub", self._subject_id, "_targets", f"{'_' if pf != '' else ''}{pf}", ".csv")))
+            try:
+                self.df_targets = self._get_targets(
+                    path=load_path, load_saved=load_saved, postfix=pf)
+                if self._verbose:
+                    if self.df_targets is not None:
+                        print(
+                            "use <DataHandler>.df_targets to access targets dataframe")
+                    if self.df_targets is None:
+                        print("target data not loaded")
+                    print("done")
+            except FileNotFoundError as fe:
+                print(
+                    f"Could not find file with target data! {fe}")
+                self.df_targets = None
         # load experiment metadata
         if load_exp:
             if self._verbose:
                 print("loading experiment metadata...")
-            self.df_exp = self._get_experiment_meta(
-                path=load_path, load_saved=load_saved, postfix=postfix)
+            if postfix_exp is not None:
+                pf = postfix_exp
+            else:
+                pf = postfix
             if self._verbose:
+                print("trying to load file: ", ''.join(
+                    (load_path, "/sub", self._subject_id, "_exp", f"{'_' if pf != '' else ''}{pf}", ".csv")))
+            try:
+                self.df_exp = self._get_experiment_meta(
+                    path=load_path, load_saved=load_saved, postfix=pf)
+                if self._verbose:
+                    if self.df_exp is not None:
+                        print(
+                            "use <DataHandler>.df_exp to access experiment dataframe")
+                    if self.df_exp is None:
+                        print("experiment data not loaded")
+                    print("done")
+
                 if self.df_exp is not None:
-                    print("use <DataHandler>.df_exp to access experiment dataframe")
-                if self.df_exp is None:
-                    print("experiment data not loaded")
-                print("done")
-
-            if self.df_exp is not None:
-                if 'Trial Category' not in self.df_exp.columns.to_list():
-                    try:
-                        filename = ''.join(
-                            (load_path, "/sub", self._subject_id, "_trial_labels.csv"))
-                        if self._verbose:
-                            print(
-                                f"Trying to load trial category from location {filename}...")
-                        series = pd.read_csv(filename)
-                        self.df_exp = pd.concat([self.df_exp, series], axis=1)
-                        if self._verbose:
-                            print("Loaded trial category from saved file")
-                    except FileNotFoundError as fe:
-                        if self._verbose:
-                            print("Could not find file with trial category!")
-                        print(fe)
-
+                    if 'Trial Category' not in self.df_exp.columns.to_list():
+                        try:
+                            filename = ''.join(
+                                (load_path, "/sub", self._subject_id, "_trial_labels.csv"))
+                            if self._verbose:
+                                print(
+                                    f"Trying to load trial category from location {filename}...")
+                            series = pd.read_csv(filename)
+                            self.df_exp = pd.concat(
+                                [self.df_exp, series], axis=1)
+                            if self._verbose:
+                                print("Loaded trial category from saved file")
+                        except FileNotFoundError as fe:
+                            if self._verbose:
+                                print("Could not find file with trial category!")
+                            print(fe)
+            except FileNotFoundError as fe:
+                print(
+                    f"Could not find file with experiment metadata! {fe}")
+                self.df_exp = None
         # load channel metadata
         if load_chan:
             if self._verbose:
                 print("loading channel metadata...")
-            self.df_chan = self._get_channel_meta(
-                path=load_path, load_saved=load_saved, postfix=postfix)
+            if postfix_chan is not None:
+                pf = postfix_chan
+            else:
+                pf = postfix
             if self._verbose:
-                if self.df_chan is not None:
-                    print("use <DataHandler>.df_chan to access channel dataframe")
-                if self.df_chan is None:
-                    print("channel data not loaded")
-                print("done")
+                print("trying to load file: ", ''.join(
+                    (load_path, "/sub", self._subject_id, "_chan", f"{'_' if pf != '' else ''}{pf}", ".csv")))
+            try:
+                self.df_chan = self._get_channel_meta(
+                    path=load_path, load_saved=load_saved, postfix=pf)
+                if self._verbose:
+                    if self.df_chan is not None:
+                        print("use <DataHandler>.df_chan to access channel dataframe")
+                    if self.df_chan is None:
+                        print("channel data not loaded")
+                    print("done")
+            except FileNotFoundError as fe:
+                print(
+                    f"Could not find file with channel metadata! {fe}")
+                self.df_chan = None
         # clean up
         if self.full is not None:
             if self._verbose:
@@ -506,9 +572,9 @@ class DataHandler():
             if self.ieeg is None and self.df_exp is None and self.df_chan is None and self.df_targets is None:
                 print("no data loaded!")
             else:
-                print("loaded data successfully!")
+                print("finished loading data!")
 
-    def save(self, path: str = None, postfix: str = '', save_ieeg: bool = True, save_exp: bool = True, save_chan: bool = True, save_targets: bool = True, verbose: bool = None):
+    def save(self, path: str = None, postfix: str = '', save_ieeg: bool = True, save_exp: bool = True, save_chan: bool = True, save_targets: bool = True, postfix_ieeg: str = None, postfix_exp: str = None, postfix_chan: str = None, postfix_targets: str = None, verbose: bool = None):
         """Save iEEG data, experiment metadata, channel metadata and target data as csv files"""
 
         # check arguments
@@ -524,6 +590,18 @@ class DataHandler():
                 f"path must be a string or None, got {type(path)}")
         if not isinstance(postfix, str):
             raise ValueError(f"postfix must be a string, got {type(postfix)}")
+        if not (isinstance(postfix_ieeg, str) or postfix_ieeg is None):
+            raise ValueError(
+                f"postfix_ieeg must be a string, got {type(postfix_ieeg)}")
+        if not (isinstance(postfix_exp, str) or postfix_exp is None):
+            raise ValueError(
+                f"postfix_exp must be a string, got {type(postfix_exp)}")
+        if not (isinstance(postfix_chan, str) or postfix_chan is None):
+            raise ValueError(
+                f"postfix_chan must be a string, got {type(postfix_chan)}")
+        if not (isinstance(postfix_targets, str) or postfix_targets is None):
+            raise ValueError(
+                f"postfix_targets must be a string, got {type(postfix_targets)}")
         if not isinstance(save_ieeg, bool):
             raise ValueError(
                 f"save_ieeg must be True or False, got {type(save_ieeg)}")
@@ -558,8 +636,12 @@ class DataHandler():
         # save iEEG data
         if save_ieeg:
             if not self.ieeg is None:
+                if postfix_ieeg is not None:
+                    pf = postfix_ieeg
+                else:
+                    pf = postfix
                 filename = ''.join(
-                    (save_path, "/sub", self._subject_id, "_ieeg", f"{'_' if postfix != '' else ''}{postfix}", ".pkl"))
+                    (save_path, "/sub", self._subject_id, "_ieeg", f"{'_' if pf != '' else ''}{pf}", ".pkl"))
                 if self._verbose:
                     print(f"saving iEEG data as {repr(filename)}")
                     if os.path.isfile(filename):
@@ -575,8 +657,12 @@ class DataHandler():
         # save target data
         if save_targets:
             if not self.df_targets is None:
+                if postfix_targets is not None:
+                    pf = postfix_targets
+                else:
+                    pf = postfix
                 filename = ''.join(
-                    (save_path, "/sub", self._subject_id, "_targets", f"{'_' if postfix != '' else ''}{postfix}", ".csv"))
+                    (save_path, "/sub", self._subject_id, "_targets", f"{'_' if pf != '' else ''}{pf}", ".csv"))
                 if self._verbose:
                     print(f"saving target data as {repr(filename)}")
                     if os.path.isfile(filename):
@@ -591,8 +677,12 @@ class DataHandler():
         # save experiment dataframe
         if save_exp:
             if not self.df_exp is None:
+                if postfix_exp is not None:
+                    pf = postfix_exp
+                else:
+                    pf = postfix
                 filename = ''.join(
-                    (save_path, "/sub", self._subject_id, "_exp", f"{'_' if postfix != '' else ''}{postfix}", ".csv"))
+                    (save_path, "/sub", self._subject_id, "_exp", f"{'_' if pf != '' else ''}{pf}", ".csv"))
                 if self._verbose:
                     print(f"saving experiment data as {repr(filename)}")
                     if os.path.isfile(filename):
@@ -607,8 +697,12 @@ class DataHandler():
         # save channel dataframe
         if save_chan:
             if not self.df_chan is None:
+                if postfix_chan is not None:
+                    pf = postfix_chan
+                else:
+                    pf = postfix
                 filename = ''.join(
-                    (save_path, "/sub", self._subject_id, "_chan", f"{'_' if postfix != '' else ''}{postfix}", ".csv"))
+                    (save_path, "/sub", self._subject_id, "_chan", f"{'_' if pf != '' else ''}{pf}", ".csv"))
                 if self._verbose:
                     print(f"saving channel data as {repr(filename)}")
                     if os.path.isfile(filename):
@@ -624,7 +718,7 @@ class DataHandler():
             if self.ieeg is None and self.df_exp is None and self.df_chan is None and self.df_targets is None:
                 print("no data saved, load data first!")
             else:
-                print("saved data successfully!")
+                print("finished saving data!")
 
     def plot(self, use_qt: bool = False):
 
@@ -890,6 +984,176 @@ class DataHandler():
             preload=True
         )
         return epochs
+
+    def _add_montage(self, subjects_dir: str):
+        """_add_montage Add a montage for the electrode contacts to the raw object in place.
+
+        Args:
+            subjects_dir (str): The path to the folder containing all subjects' freesurfer output files.
+        """
+        if self.raw == None:
+            self.raw = self.create_raw()
+
+        subject_dir_name = f'sub{self._subject_id}'
+
+        # get fiducials for subject in MNI_TAL space using subject's Freesurfer MRI brian
+        fiducials = mne.coreg.get_mni_fiducials(
+            subject=subject_dir_name, subjects_dir=subjects_dir)
+
+        for d in fiducials:
+            if d["ident"] == FIFF.FIFFV_POINT_NASION:
+                nas = d['r']  # * 1000
+            elif d["ident"] == FIFF.FIFFV_POINT_LPA:
+                lpa = d['r']  # * 1000
+            elif d["ident"] == FIFF.FIFFV_POINT_RPA:
+                rpa = d['r']  # * 1000
+
+        # get channel locations from channel meta information dataframe
+        ch_locations = {}
+        for ch in self.df_chan['name']:
+            ch_locations[ch] = tuple(self.df_chan.loc[self.df_chan['name'] == ch, [
+                'loc_1', 'loc_2', 'loc_3']].values[0])
+
+        # location values are in millimetres, but mne expects the values in meters
+        def convert_to_meters(values):
+            modified_values = np.zeros(len(values))
+            for i, v in enumerate(values):
+                modified_values[i] = v / 1000
+            return modified_values
+
+        ch_locations_in_meters = {key: convert_to_meters(
+            values) for key, values in ch_locations.items()}
+
+        # create electrode locations montage
+        montage = mne.channels.make_dig_montage(
+            ch_pos=ch_locations_in_meters, nasion=nas, lpa=lpa, rpa=rpa, hsp=None, hpi=None, coord_frame="unknown")
+        # apply the montage to the raw data, mne will transform the coordinates to "head" space (under the hood)
+        self.raw.set_montage(montage)
+
+        # retrieve the montage from the raw data
+        montage = self.raw.get_montage()
+
+        # transform electrode locations from mne's "head" to "mri" space
+        head_mri_t = mne.coreg.estimate_head_mri_t(
+            subject_dir_name, subjects_dir)
+        montage.apply_trans(head_mri_t)
+
+        # load our Talairach transform and apply it
+        mri_mni_t = mne.read_talxfm(subject_dir_name, subjects_dir)
+        montage.apply_trans(mri_mni_t)  # mri to mni_tal (MNI Taliarach)
+
+        # for fsaverage, "mri" and "mni_tal" are equivalent and, since
+        # we want to plot in fsaverage "mri" space, we need to use an
+        # identity transform to equate these coordinate frames
+        montage.apply_trans(mne.transforms.Transform(
+            fro="mni_tal", to="mri", trans=np.eye(4)))
+        self.raw.set_montage(montage)
+        return montage
+
+    def _get_montage_volume_labels(self, montage, subject, subjects_dir: str = None, aseg: str = "auto", dist: (float | int) = .2, fname: str = None):
+        """_get_montage_volume_labels Get regions of interest near channels from a Freesurfer parcellation.
+
+        This is applicable for channels inside the brain (intracranial electrodes).
+
+        Args:
+            montage (mne.channels.DigMontage): The montage object containing the channel positions.
+            subject (str): The subject folder name (eg. "sub03").
+            subjects_dir (str): The path to the folder containing all subjects' freesurfer output files.
+            aseg (str): The name of the aseg file in the subject's mri folder. Defaults to "auto".
+            dist (float): The distance in mm to use for identifying regions of interest. Defaults to 2.
+            fname (str): The name of the freesurfer lookup table file. Defaults to None.
+
+        Raises:
+            ValueError: Distance given in the wrong range.
+            RuntimeError: Coordinate frame not supported.
+
+        Returns:
+            labels (dict): The regions of interest labels within dist of each channel.
+            colors (dict): The lookup table colors for the labels.
+        """
+        from mne._freesurfer import _get_aseg, read_freesurfer_lut
+        from collections import OrderedDict
+
+        _VOXELS_MAX = 1000  # define constant to avoid runtime issues
+
+        if dist < 0 or dist > 10:
+            raise ValueError("`dist` must be between 0 and 10")
+
+        aseg, aseg_data = _get_aseg(aseg, subject, subjects_dir)
+
+        # read freesurfer lookup table
+        lut, fs_colors = read_freesurfer_lut(fname=fname)
+        label_lut = {v: k for k, v in lut.items()}
+
+        # assert that all the values in the aseg are in the labels
+        assert all([idx in label_lut for idx in np.unique(aseg_data)])
+
+        # get transform to surface RAS for distance units instead of voxels
+        vox2ras_tkr = aseg.header.get_vox2ras_tkr()
+
+        ch_dict = montage.get_positions()
+        if ch_dict["coord_frame"] != "mri":
+            raise RuntimeError(
+                "Coordinate frame not supported, expected "
+                '"mri", got ' + str(ch_dict["coord_frame"])
+            )
+        ch_coords = np.array(list(ch_dict["ch_pos"].values()))
+
+        # convert to freesurfer voxel space
+        ch_coords = mne.surface.apply_trans(
+            np.linalg.inv(aseg.header.get_vox2ras_tkr()), ch_coords * 1000
+        )
+        labels = OrderedDict()
+        for ch_name, ch_coord in zip(montage.ch_names, ch_coords):
+            if np.isnan(ch_coord).any():
+                labels[ch_name] = list()
+            else:
+                voxels = mne.surface._voxel_neighbors(
+                    ch_coord,
+                    aseg_data,
+                    dist=dist,
+                    vox2ras_tkr=vox2ras_tkr,
+                    voxels_max=_VOXELS_MAX,
+                )
+                label_idxs = set([aseg_data[tuple(voxel)].astype(int)
+                                 for voxel in voxels])
+                labels[ch_name] = [label_lut[idx] for idx in label_idxs]
+
+        all_labels = set([label for val in labels.values() for label in val])
+        colors = {label: tuple(
+            fs_colors[label][:3] / 255) + (1.0,) for label in all_labels}
+        return labels, colors
+
+    def add_vep_atlas_labels_to_df_chan(self, subjects_dir: str = None, aseg: str = "auto", dist: (float | int) = .2, fname: str = None, return_labels: bool = False):
+
+        if self.df_chan is None:
+            print("No channel data found, use <DataHandler>.load() to load data.")
+            return
+        if self.raw == None:
+            self.raw = self.create_raw()
+
+        # apply montage and add it to the raw object
+        montage = self._add_montage(subjects_dir)
+
+        # get labels and colors for each channel
+        labels, colors = self._get_montage_volume_labels(
+            montage=montage,
+            subject='sub' + self._subject_id,
+            subjects_dir=subjects_dir,
+            aseg=aseg,
+            dist=dist,
+            fname=fname)
+
+        # get label strings from list of labels per contact, if more than one label has been found for a contact
+        # keep all the labels, otherwise just keep the single label.
+        labels = {k: v[0] if len(v) == 1 else '|'.join(v)
+                  for k, v in labels.items()}
+
+        # add labels to channel dataframe
+        self.df_chan['VEP_atlas'] = self.df_chan['name'].map(labels)
+
+        if return_labels:
+            return labels
 
     def average(self, method: str = 'epochs'):
         """average Compute average of ieeg data
