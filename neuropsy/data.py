@@ -866,7 +866,7 @@ class DataHandler():
             self.ch_names = self.df_chan['name'].to_list()
             return data
 
-    def create_raw(self):
+    def create_raw(self, return_raw: bool = False):
         # MNE info object will be used to create MNE Raw object
         info = mne.create_info(
             ch_names=self.df_chan['name'].to_list(),
@@ -914,9 +914,27 @@ class DataHandler():
 
         # Add annotations to raw object
         raw.set_annotations(annotations)
-        # save raw object
-        self.raw = raw
-        return raw
+
+        if return_raw:
+            return raw
+        else:
+            self.raw = raw
+
+    def read_raw(self, fname: str, preload: bool = False, return_raw: bool = False):
+        """read_raw Read a raw file using MNE.
+
+        Args:
+            fname (str): Path to the raw file.
+            preload (bool, optional): Preload the data into memory. Defaults to False.
+
+        Returns:
+            raw (mne.io.BaseRaw): MNE raw object.
+        """
+        raw = mne.io.read_raw_fif(fname, preload=preload)
+        if return_raw:
+            return raw
+        else:
+            self.raw = raw
 
     def create_epochs(self,
                       raw: mne.io.BaseRaw = None,
@@ -985,6 +1003,7 @@ class DataHandler():
         )
         return epochs
 
+    # [REMOVE] this will be done in a separate script "electrode_coordinates.ipynb"
     def _add_montage(self, subjects_dir: str):
         """_add_montage Add a montage for the electrode contacts to the raw object in place.
 
@@ -1050,6 +1069,7 @@ class DataHandler():
         self.raw.set_montage(montage)
         return montage
 
+    # [REMOVE] this will be done in a separate script "electrode_labelling.ipynb"
     def _get_montage_volume_labels(self, montage, subject, subjects_dir: str = None, aseg: str = "auto", dist: (float | int) = .2, fname: str = None):
         """_get_montage_volume_labels Get regions of interest near channels from a Freesurfer parcellation.
 
@@ -1124,6 +1144,7 @@ class DataHandler():
             fs_colors[label][:3] / 255) + (1.0,) for label in all_labels}
         return labels, colors
 
+    # [REMOVE] this will be done in a separate script "electrode_labelling.ipynb"
     def add_vep_atlas_labels_to_df_chan(self, subjects_dir: str = None, aseg: str = "auto", dist: (float | int) = .2, fname: str = None, return_labels: bool = False):
 
         if self.df_chan is None:
@@ -1153,7 +1174,7 @@ class DataHandler():
         self.df_chan['VEP_atlas'] = self.df_chan['name'].map(labels)
 
         if return_labels:
-            return labels
+            return labels, colors
 
     def average(self, method: str = 'epochs'):
         """average Compute average of ieeg data
