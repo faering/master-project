@@ -254,6 +254,66 @@ def check_trials(df, col_name, tmin, tmax, baseline):
 
     return idx_too_short, idx_too_close
 
+
+def get_conditions_avg_power(power_data, conditions, verbose=False):
+    """get_conditions_avg_power Average power across all channels (also across subjects) for each condition.
+
+    Args:
+        power_data (dict): Dictionary with all subjects' power data for each condition and channel.
+        conditions (tuple, list): Tuple with conditions to average power across.
+
+    Returns:
+        power (dict): Dictionary with averaged power data for each condition.
+    """
+    power = {}
+    for condition in conditions:
+        if verbose:
+            print(f"condition: {repr(condition)}")
+        power[condition] = []
+        for subject_id in power_data.keys():
+            for channel in power_data[subject_id][condition].keys():
+                # save channel data
+                power[condition].append(
+                    power_data[subject_id][condition].get(channel))
+        if verbose:
+            print("Shape before average:")
+        if verbose:
+            print(f"\t{np.array(power[condition]).shape}")
+        # compute mean of all channels across subjects for condition
+        power[condition] = np.mean(power[condition], axis=0)
+        if verbose:
+            print("Shape after average:")
+        if verbose:
+            print(f"\t{np.array(power[condition]).shape}\n")
+    return power
+
+
+def get_total_avg_power(power_data, conditions):
+    """get_total_avg_power Average power across all conditions and channels (also across subjects).
+
+    Args:
+        power_data (dict): Dictionary with all subjects' power data for each condition and channel.
+        conditions (tuple, list): Tuple with conditions to average power across.
+
+    Returns:
+        power (np.ndarray): Total averaged power.
+    """
+    power = []
+    for condition in conditions:
+        print(f"condition: {repr(condition)}")
+        for subject_id in power_data.keys():
+            for channel in power_data[subject_id][condition].keys():
+                # save channel data
+                power.append(power_data[subject_id][condition].get(channel))
+    print("Shape before average:")
+    print(f"\t{np.array(power).shape}")
+    # compute mean of all channels across subjects
+    power = np.mean(power, axis=0)
+    print("Shape after average:")
+    print(f"\t{np.array(power).shape}\n")
+    return power
+
+
 # [INFO] Not finished
 
 
