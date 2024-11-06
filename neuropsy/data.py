@@ -383,7 +383,65 @@ class DataHandler():
             raise ValueError(
                 f"exp_phase must be 1, 2, 3 or 4, got {self._exp_phase}")
 
-    def load(self, path: str = None, load_saved: bool = False, postfix: str = '', load_ieeg: bool = True, load_exp: bool = True, load_chan: bool = True, load_targets: bool = True, postfix_ieeg: str = None, postfix_exp: str = None, postfix_chan: str = None, postfix_targets: str = None, verbose: bool = None):
+    def _get_ied_df(self, path: str = '', load_saved: bool = False, postfix: str = ''):
+        """_get_ied_df Create a new DataFrame with information on IEDs in the data.
+
+        Create a dataframe with time points of IEDs, channel numbers, channel names, and time in seconds.
+        """
+        try:
+            # set load path
+            if path is None or path == '':
+                load_path = self._path
+            else:
+                load_path = path
+            # load saved data
+            if load_saved:
+                path_df = ''.join(
+                    (path, "/sub", self._subject_id, "_ied", f"{'_' if postfix != '' else ''}{postfix}", ".csv"))
+                if self._verbose:
+                    print(
+                        f"loading saved IED data from {repr(path_df)}")
+                df_ied = pd.read_csv(path_df)
+            # create from initial ied file
+            else:
+                # load ied data from initial file, no extra columns
+                path_df = ''.join(
+                    (path, "/ied", "/sub", self._subject_id, "_ied.csv"))
+                df_ied = pd.read_csv(path_df)
+
+                # get the channel name from df_chan and add it to df_ied (if channel is in df_ied)
+                series_chan_name = pd.Series(
+                    [None] * len(df_ied), name='chan name')
+                for i in range(len(self.df_chan)):
+                    if i+1 in df_ied['chan']:
+                        idx = np.where(df_ied['chan'] == i+1)[0]
+                        series_chan_name[idx] = self.df_chan['name'][i]
+
+                # add new column with channel names to df_ied
+                df_ied['chan name'] = series_chan_name
+
+                # rename time column to 'time (s)'
+                df_ied.rename(columns={'time': 'time (s)'}, inplace=True)
+
+                # add new column with time points, converted from 'time' column which is in seconds, to df_ied
+                df_ied['time point'] = np.floor(
+                    df_ied['time (s)'] * self._fs).astype(int)
+        except FileNotFoundError:
+            print(
+                f"Could not find file {repr(path_df)}. Make sure you have saved the IED data first and the postfix is set correctly.")
+            arg = input(
+                "Do you want to load from the initial IED data instead? ([y]/n): ").strip().lower()
+            if arg == 'y' or arg == 'yes' or arg == '':
+                arg = input("Path to initial IED data directory: ").strip()
+                path_df = ''.join((arg, "/sub", self._subject_id, "_ied.csv"))
+                df_ied = self._get_ied_df(
+                    path=path_df, load_saved=False, postfix=None)
+            else:
+                df_ied = None
+        finally:
+            return df_ied
+
+    def load(self, path: str = None, load_saved: bool = False, postfix: str = '', load_ieeg: bool = True, load_exp: bool = True, load_chan: bool = True, load_targets: bool = True, load_ied: bool = True, postfix_ieeg: str = None, postfix_exp: str = None, postfix_chan: str = None, postfix_targets: str = None, postfix_ied: str = None, verbose: bool = None):
         """Load data as defined by path, subject_id, and exp_phase"""
         # check arguments
         if isinstance(verbose, bool):
@@ -415,6 +473,9 @@ class DataHandler():
         if not (isinstance(postfix_targets, str) or postfix_targets is None):
             raise ValueError(
                 f"postfix_targets must be a string, got {type(postfix_targets)}")
+        if not (isinstance(postfix_ied, str) or postfix_ied is None):
+            raise ValueError(
+                f"postfix_ied must be a string, got {type(postfix_ied)}")
         if not isinstance(load_ieeg, bool):
             raise ValueError(
                 f"load_ieeg must be True or False, got {type(load_ieeg)}")
@@ -427,9 +488,12 @@ class DataHandler():
         if not isinstance(load_targets, bool):
             raise ValueError(
                 f"load_targets must be True or False, got {type(load_targets)}")
-        if not (load_ieeg or load_exp or load_chan or load_targets):
+        if not isinstance(load_ied, bool):
             raise ValueError(
-                "one of load_ieeg, load_exp, load_chan, or load_targets must be True to load data")
+                f"load_ied must be True or False, got {type(load_ied)}")
+        if not (load_ieeg or load_exp or load_chan or load_targets or load_ied):
+            raise ValueError(
+                "one of load_ieeg, load_exp, load_chan, load_targets, or load_ied must be True to load data")
 
         # start loading data
         if self._verbose:
@@ -561,6 +625,27 @@ class DataHandler():
                 print(
                     f"Could not find file with channel metadata! {fe}")
                 self.df_chan = None
+        # load ied data
+        if load_ied:
+            if self._verbose:
+                print("loading IED data...")
+            if postfix_ied is not None:
+                pf = postfix_ied
+            else:
+                pf = postfix
+            try:
+                self.df_ied = self._get_ied_df(
+                    path=load_path, load_saved=load_saved, postfix=pf)
+                if self._verbose:
+                    if self.df_ied is not None:
+                        print("use <DataHandler>.df_ied to access IED dataframe")
+                    if self.df_ied is None:
+                        print("IED data not loaded")
+                    print("done")
+            except FileNotFoundError as fe:
+                print(
+                    f"Could not find file with IED data! {fe}")
+                self.df_ied = None
         # clean up
         if self.full is not None:
             if self._verbose:
@@ -569,12 +654,12 @@ class DataHandler():
             del self.full
             self.full = None
         if self._verbose:
-            if self.ieeg is None and self.df_exp is None and self.df_chan is None and self.df_targets is None:
+            if self.ieeg is None and self.df_exp is None and self.df_chan is None and self.df_targets is None and self.df_ied is None:
                 print("no data loaded!")
             else:
                 print("finished loading data!")
 
-    def save(self, path: str = None, postfix: str = '', save_ieeg: bool = True, save_exp: bool = True, save_chan: bool = True, save_targets: bool = True, postfix_ieeg: str = None, postfix_exp: str = None, postfix_chan: str = None, postfix_targets: str = None, verbose: bool = None):
+    def save(self, path: str = None, postfix: str = '', save_ieeg: bool = True, save_exp: bool = True, save_chan: bool = True, save_targets: bool = True, save_ied: bool = True, postfix_ieeg: str = None, postfix_exp: str = None, postfix_chan: str = None, postfix_targets: str = None, postfix_ied: str = None, verbose: bool = None):
         """Save iEEG data, experiment metadata, channel metadata and target data as csv files"""
 
         # check arguments
@@ -602,6 +687,9 @@ class DataHandler():
         if not (isinstance(postfix_targets, str) or postfix_targets is None):
             raise ValueError(
                 f"postfix_targets must be a string, got {type(postfix_targets)}")
+        if not (isinstance(postfix_ied, str) or postfix_ied is None):
+            raise ValueError(
+                f"postfix_ied must be a string, got {type(postfix_ied)}")
         if not isinstance(save_ieeg, bool):
             raise ValueError(
                 f"save_ieeg must be True or False, got {type(save_ieeg)}")
@@ -614,9 +702,12 @@ class DataHandler():
         if not isinstance(save_targets, bool):
             raise ValueError(
                 f"save_targets must be True or False, got {type(save_targets)}")
-        if not (save_ieeg or save_exp or save_chan or save_targets):
+        if not isinstance(save_ied, bool):
             raise ValueError(
-                "one of save_ieeg, save_exp, save_chan, or save_targets must be True to save data")
+                f"save_ied must be True or False, got {type(save_ied)}")
+        if not (save_ieeg or save_exp or save_chan or save_targets or save_ied):
+            raise ValueError(
+                "one of save_ieeg, save_exp, save_chan, save_targets. or save_ied must be True to save data")
 
         # start saving data
         if self._verbose:
@@ -714,6 +805,27 @@ class DataHandler():
             else:
                 if self._verbose:
                     print(f"<DataHandler>.df_chan is None, skipping...")
+        # save ied dataframe
+        if save_ied:
+            if not self.df_ied is None:
+                if postfix_ied is not None:
+                    pf = postfix_ied
+                else:
+                    pf = postfix
+                filename = ''.join(
+                    (save_path, "/sub", self._subject_id, "_ied", f"{'_' if pf != '' else ''}{pf}", ".csv"))
+                if self._verbose:
+                    print(f"saving IED data as {repr(filename)}")
+                    if os.path.isfile(filename):
+                        print(
+                            f"file {repr(filename)} already exists, overwriting...")
+                self.df_ied.to_csv(filename, index=False)
+                if self._verbose:
+                    print(f"done")
+            else:
+                if self._verbose:
+                    print(f"<DataHandler>.df_ied is None, skipping...")
+        # finish
         if self._verbose:
             if self.ieeg is None and self.df_exp is None and self.df_chan is None and self.df_targets is None:
                 print("no data saved, load data first!")
