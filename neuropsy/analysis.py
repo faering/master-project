@@ -207,9 +207,10 @@ def get_scales(freqs, wavelet, fs):
     return pywt.frequency2scale(wavelet, frequencies)
 
 
-def check_trials(df, col_name, tmin, tmax, baseline):
+def check_trials(df, col_name, tmin, tmax, baseline, verbose=False):
     # Check if any trials are too short for the given tmax
-    print(f"Checking if any trials are too short for tmax = {tmax} ...")
+    if verbose:
+        print(f"Checking if any trials are too short for tmax = {tmax} ...")
     idx_too_short = df[df['Reaction Time (computed)'] <= tmax].index.to_list()
     if len(idx_too_short) > 0:
         labels_too_short = df.loc[idx_too_short, col_name].to_list()
@@ -220,13 +221,16 @@ def check_trials(df, col_name, tmin, tmax, baseline):
             else:
                 dict_too_short[label] += 1
         for key, value in dict_too_short.items():
-            print(f"{value} trials in condition {repr(key)} too short.")
+            if verbose:
+                print(f"{value} trials in condition {repr(key)} too short.")
     else:
-        print("All trials are longer than tmax.")
+        if verbose:
+            print("All trials are longer than tmax.")
 
     # check if any trials are too close to each other wrt. tmin and baseline
-    print(
-        f"Checking if any trials are too close to each other for tmin = {tmin} s and baseline tmin = {np.min(baseline)} s ...")
+    if verbose:
+        print(
+            f"Checking if any trials are too close to each other for tmin = {tmin} s and baseline tmin = {np.min(baseline)} s ...")
     idx_too_close = []
     for i, time_placed in enumerate(df['Timestamp (s) for Picture Placed']):
         if i == len(df) - 1:
@@ -248,9 +252,16 @@ def check_trials(df, col_name, tmin, tmax, baseline):
             else:
                 dict_too_close[label] += 1
         for key, value in dict_too_short.items():
-            print(f"{value} trials in condition {repr(key)} too close.")
+            if verbose:
+                print(f"{value} trials in condition {repr(key)} too close.")
     else:
-        print("All trials are far enough apart.")
+        if verbose:
+            print("All trials are far enough apart.")
+
+    # make sure that idx_too_close and idx_too_short are disjoint
+    for i in idx_too_short:
+        if i in idx_too_close:
+            idx_too_close.remove(i)
 
     return idx_too_short, idx_too_close
 
@@ -313,6 +324,29 @@ def get_total_avg_power(power_data, conditions):
     print(f"\t{np.array(power).shape}\n")
     return power
 
+
+def check_period_for_ieds(ch_name, df_ied, i_start, i_end):
+    """check_period_for_ieds Check the inter-event intervals between two events.
+
+    Args:
+        ch_name (str): Channel name.
+        df_ied (pd.DataFrame): DataFrame with IED timepoints.
+        i_start (int): Index of start of period to check.
+        i_end (int): Index of end of period to check.
+
+    Returns:
+        bool: True if IED is within the desired range, False otherwise.
+    """
+    bool_ied = False
+    ied_timepoints = df_ied.loc[df_ied['chan name']
+                                == ch_name]['time point'].to_numpy()
+    period_to_check = np.arange(start=i_start, stop=i_end+1, step=1)
+
+    for ied in ied_timepoints:
+        if ied in period_to_check:
+            bool_ied = True
+            break
+    return bool_ied
 
 # [INFO] Not finished
 
