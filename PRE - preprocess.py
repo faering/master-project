@@ -3,10 +3,11 @@
 from argparse import ArgumentParser
 import os
 import json
+import matplotlib
 import matplotlib.pyplot as plt
 import traceback
 import warnings
-import neuropsy as nps
+import neuropsy as npsy
 import neuropsy.preprocessing as prep
 from neuropsy import utils
 
@@ -45,6 +46,9 @@ if __name__ == '__main__':
     postfix = ''
     info_dict = {}   # dictionary to store preprocessing information
     info_subjects_saved = []  # used to determine which subjects to save to JSON info file
+    use_same_filters = False
+    used_filter_dict = {}   # stores the previously applied filters
+    save_path = None
 
     # parse arguments
     try:
@@ -132,7 +136,6 @@ if __name__ == '__main__':
                         args.sampling_freq = int(args.sampling_freq)
                 if isinstance(args.use_qt, bool):
                     if args.use_qt:
-                        import matplotlib
                         matplotlib.use('Qt5Agg')
                         print("Using Qt5Agg backend for matplotlib")
                     else:
@@ -147,13 +150,14 @@ if __name__ == '__main__':
                     raise ValueError(
                         f"Unrecognized value for flag argument verbose (see --help), expected True or False, got {type(args.verbose)}")
 
-                # init data instance
-                data = nps.DataHandler(path=args.path,
-                                       subject_id=subject_id,
-                                       exp_phase=args.exp_phase,
-                                       fs=args.sampling_freq,
-                                       verbose=args.verbose)
+                ################# INITIALISE DATAHANDLER #################
+                data = npsy.DataHandler(path=args.path,
+                                        subject_id=subject_id,
+                                        exp_phase=args.exp_phase,
+                                        fs=args.sampling_freq,
+                                        verbose=args.verbose)
 
+                ################# LOAD DATA #################
                 # prompt user to load saved data
                 load_saved = input("Do you wish to load saved data? (y/[n]): ")
                 if load_saved == 'y':
@@ -178,7 +182,6 @@ if __name__ == '__main__':
                     load_saved = False
                     input_load_postfix = ''
 
-                # load data
                 data.load(path=args.path,
                           load_saved=load_saved,
                           postfix=input_load_postfix,
@@ -189,11 +192,13 @@ if __name__ == '__main__':
                     'cleaning': {
                         'nan': {
                             'applied': False,
+                            'columns': None,
                             'indices': [],
                             'count': 0
                         },
                         'outliers': {
                             'applied': False,
+                            'columns': None,
                             'indices': [],
                             'count': 0
                         }
@@ -223,17 +228,21 @@ if __name__ == '__main__':
                     }
                 }
 
+                ################# START PREPROCESSING #################
                 # prompt user to preprocess data
                 arg = input("Continuing to preprocess data? ([y]/n): ").strip()
                 if arg == 'n' or arg == 'N':
                     print("Exiting...")
                     exit(0)
                 else:
+
+                    ################# CLEANING EXPERIMENT DATA #################
                     # clean NaNs in trials (experiment metadata)
                     arg = input(
                         "Do you wish to clean the data for NaNs? ([y]/n): ").strip()
                     if arg == 'n' or arg == 'N':
                         print("Skipping NaN cleaning...")
+                        inp_cols = None
                     else:
                         inp_cols = input(
                             "Columns to clean for NaNs (separated by comma or 'all' for all columns): ")
@@ -248,6 +257,7 @@ if __name__ == '__main__':
                                 data.df_exp, idx_nans = prep.clean_nan(df=data.df_exp,
                                                                        cols=data.df_exp.columns.to_list(),
                                                                        verbose=args.verbose)
+                                cols = 'all'
                             else:
                                 if args.verbose:
                                     print(
@@ -260,6 +270,7 @@ if __name__ == '__main__':
 
                             # save preprocessing information
                             info_dict[f'subject {subject_id}']['cleaning']['nan']['applied'] = True
+                            info_dict[f'subject {subject_id}']['cleaning']['nan']['columns'] = cols
                             info_dict[f'subject {subject_id}']['cleaning']['nan']['indices'] = [
                                 int(idx) for idx in idx_nans]
                             info_dict[f'subject {subject_id}']['cleaning']['nan']['count'] = len(
@@ -271,10 +282,10 @@ if __name__ == '__main__':
                     if arg == 'n' or arg == 'N':
                         print("Skipping outlier cleaning...")
                     else:
-                        cols = input(
+                        inp_cols = input(
                             "Columns to clean for outliers (separated by comma): ")
-                        if cols == '':
-                            cols = None
+                        if inp_cols == '':
+                            inp_cols = None
                             print(
                                 "No columns specified, skipping outlier cleaning...")
                         else:
@@ -286,8 +297,8 @@ if __name__ == '__main__':
                                 num_std = int(num_std)
                             if args.verbose:
                                 print(
-                                    f"Cleaning outliers in columns {cols} with {num_std} standard deviations...")
-                            cols = cols.strip().split(',')
+                                    f"Cleaning outliers in columns {inp_cols} with {num_std} standard deviations...")
+                            cols = inp_cols.strip().split(',')
                             cols = [col.strip() for col in cols]
                             _, idx_outliers = prep.clean_outliers(df=data.df_exp,
                                                                   cols=cols,
@@ -298,12 +309,13 @@ if __name__ == '__main__':
                             data.df_exp.loc[idx_outliers, 'outlier'] = True
                             # save preprocessing information
                             info_dict[f'subject {subject_id}']['cleaning']['outliers']['applied'] = True
+                            info_dict[f'subject {subject_id}']['cleaning']['nan']['columns'] = cols
                             info_dict[f'subject {subject_id}']['cleaning']['outliers']['indices'] = [
                                 int(idx) for idx in idx_outliers]
                             info_dict[f'subject {subject_id}']['cleaning']['outliers']['count'] = len(
                                 idx_outliers)
 
-                    # filter data
+                    ################# FILTERING #################
                     continue_filtering = True
                     arg = input(
                         "Do you wish to filter the data? ([y]/n): ").strip()
@@ -313,120 +325,94 @@ if __name__ == '__main__':
 
                     # continue to filter data until all desired filters are applied
                     while continue_filtering:
-                        print("Available filters:")
-                        print("\thighpass/hp")
-                        print("\tlowpass/lp")
-                        print("\tbandpass/bp")
-                        print("\tbandstop/bs")
-                        avail_filters = ['highpass', 'lowpass',
-                                         'bandpass', 'bandstop', 'hp', 'lp', 'bp', 'bs']
-                        input_filter = input(
-                            "Filter type to apply: ").strip()
-                        # wrong input, skip or continue filtering
-                        if input_filter == '':
+                        if len(used_filter_dict) > 0:
                             arg = input(
-                                f"No filter specified, still want to continue filtering? ([y]/n): ").strip().lower()
+                                "Do you wish to use the same filters as the previous subject? ([y]/n): ").strip()
                             if arg == 'n' or arg == 'no':
-                                continue_filtering = False
+                                use_same_filters = False
                             else:
-                                continue
-                        # valid filter specified, filter process
-                        elif input_filter in avail_filters:
-                            if input_filter == 'hp':
-                                input_filter = 'highpass'
-                            elif input_filter == 'lp':
-                                input_filter = 'lowpass'
-                            elif input_filter == 'bp':
-                                input_filter = 'bandpass'
-                            elif input_filter == 'bs':
-                                input_filter = 'bandstop'
+                                use_same_filters = True
 
-                            # filter order
-                            input_order = input(
-                                f"Order of {input_filter} filter (default=4): ")
-                            if input_order == '':
-                                input_order = 4
-                            elif input_order:
-                                input_order = int(input_order)
-
-                            # filter cutoff frequency
-                            input_cutoff = input(
-                                f"Cutoff frequency of {input_filter} filter (separated by comma if bandstop or bandpass): ")
-                            if input_cutoff == '':
-                                warnings.warn(
-                                    f"No cutoff frequency specified, skipping {input_filter} filter...", UserWarning)
+                        if use_same_filters:
+                            for filter_type, filter_dict in used_filter_dict.items():
+                                print(
+                                    f"Applying {filter_type} filter with order {filter_dict['order']} and cutoff frequency {filter_dict['cutoff']}...")
+                                data.ieeg = prep.filter(
+                                    data=data.ieeg, filter_dict=filter_dict)
+                                print(f"{filter_type} filter applied!")
+                                # save preprocessing information
+                                info_dict[f'subject {subject_id}']['filtering']['applied'] = True
+                                info_dict[f'subject {subject_id}']['filtering']['filters'][filter_type] = {
+                                    'order': filter_dict['order'],
+                                    'cutoff': filter_dict['cutoff']
+                                }
+                            continue_filtering = False
+                        else:
+                            print("Available filters:")
+                            print("\thighpass/hp")
+                            print("\tlowpass/lp")
+                            print("\tbandpass/bp")
+                            print("\tbandstop/bs")
+                            avail_filters = ['highpass', 'lowpass',
+                                             'bandpass', 'bandstop', 'hp', 'lp', 'bp', 'bs']
+                            input_filter = input(
+                                "Filter type to apply: ").strip()
+                            # wrong input, skip or continue filtering
+                            if input_filter == '':
                                 arg = input(
-                                    f"No cutoff frequency specified, still want to continue filtering? ([y]/n): ").strip().lower()
+                                    f"No filter specified, still want to continue filtering? ([y]/n): ").strip().lower()
                                 if arg == 'n' or arg == 'no':
                                     continue_filtering = False
                                 else:
                                     continue
-                            else:
-                                input_cutoff = input_cutoff.strip().split(',')
-                                if len(input_cutoff) == 1:
-                                    input_cutoff = float(input_cutoff[0])
-                                elif len(input_cutoff) == 2:
-                                    input_cutoff = [
-                                        float(input_cutoff[0]), float(input_cutoff[1])]
-                                else:
+                            # valid filter specified, filter process
+                            elif input_filter in avail_filters:
+                                if input_filter == 'hp':
+                                    input_filter = 'highpass'
+                                elif input_filter == 'lp':
+                                    input_filter = 'lowpass'
+                                elif input_filter == 'bp':
+                                    input_filter = 'bandpass'
+                                elif input_filter == 'bs':
+                                    input_filter = 'bandstop'
+
+                                # filter order
+                                input_order = input(
+                                    f"Order of {input_filter} filter (default=4): ")
+                                if input_order == '':
+                                    input_order = 4
+                                elif input_order:
+                                    input_order = int(input_order)
+
+                                # filter cutoff frequency
+                                input_cutoff = input(
+                                    f"Cutoff frequency of {input_filter} filter (separated by comma if bandstop or bandpass): ")
+                                if input_cutoff == '':
                                     warnings.warn(
-                                        f"Invalid number of cutoff frequencies specified, skipping {input_filter} filter...", UserWarning)
-                                    continue
-
-                            # ask to show filter response and bodeplot
-                            arg = input(
-                                "Do you wish to plot the filter response and bodeplot before applying filter? ([y]/n): ").strip().lower()
-                            if arg == 'n' or arg == 'no':
-                                # only show bodeplot and filter response, do not apply filter yet
-                                filter_dict = {
-                                    'fs': args.sampling_freq,
-                                    'order': input_order,
-                                    'cutoff': input_cutoff,
-                                    'filter_type': input_filter,
-                                    'apply_filter': True,
-                                    'show_impulse_response': False,
-                                    'show_bodeplot': False,
-                                    'len_impulse': 1000,
-                                    'filter_mode': 'sos'
-                                }
-                                data.ieeg = prep.filter(
-                                    data=data.ieeg, filter_dict=filter_dict)
-                                print(f"{input_filter} filter applied!")
-                                # save preprocessing information
-                                info_dict[f'subject {subject_id}']['filtering']['applied'] = True
-                                info_dict[f'subject {subject_id}']['filtering']['filters'][input_filter] = {
-                                    'order': input_order,
-                                    'cutoff': input_cutoff
-                                }
-
-                            else:
-                                # only show bodeplot and filter response, do not apply filter yet
-                                filter_dict = {
-                                    'fs': args.sampling_freq,
-                                    'order': input_order,
-                                    'cutoff': input_cutoff,
-                                    'filter_type': input_filter,
-                                    'apply_filter': False,
-                                    'show_impulse_response': True,
-                                    'show_bodeplot': True,
-                                    'len_impulse': 1000,
-                                    'filter_mode': 'sos'
-                                }
-                                sos = prep.filter(
-                                    data=data.ieeg, filter_dict=filter_dict, use_qt=args.use_qt)
-
-                                arg = input(
-                                    "Do you wish to apply this filter? ([y]/n): ").strip().lower()
-                                plt.close()
-                                if arg == 'n' or arg == 'no':
+                                        f"No cutoff frequency specified, skipping {input_filter} filter...", UserWarning)
                                     arg = input(
-                                        f"Filter not applied, still want to continue filtering? ([y]/n): ").strip().lower()
+                                        f"No cutoff frequency specified, still want to continue filtering? ([y]/n): ").strip().lower()
                                     if arg == 'n' or arg == 'no':
                                         continue_filtering = False
                                     else:
                                         continue
-                                # apply filter
                                 else:
+                                    input_cutoff = input_cutoff.strip().split(',')
+                                    if len(input_cutoff) == 1:
+                                        input_cutoff = float(input_cutoff[0])
+                                    elif len(input_cutoff) == 2:
+                                        input_cutoff = [
+                                            float(input_cutoff[0]), float(input_cutoff[1])]
+                                    else:
+                                        warnings.warn(
+                                            f"Invalid number of cutoff frequencies specified, skipping {input_filter} filter...", UserWarning)
+                                        continue
+
+                                # ask to show filter response and bodeplot
+                                arg = input(
+                                    "Do you wish to plot the filter response and bodeplot before applying filter? ([y]/n): ").strip().lower()
+                                if arg == 'n' or arg == 'no':
+                                    # only show bodeplot and filter response, do not apply filter yet
                                     filter_dict = {
                                         'fs': args.sampling_freq,
                                         'order': input_order,
@@ -447,24 +433,77 @@ if __name__ == '__main__':
                                         'order': input_order,
                                         'cutoff': input_cutoff
                                     }
-                        # wrong input, skip or continue filtering
-                        else:
-                            warnings.warn(
-                                f"Filter {input_filter} not available. Available filters: {avail_filters}", UserWarning)
+
+                                else:
+                                    # only show bodeplot and filter response, do not apply filter yet
+                                    filter_dict = {
+                                        'fs': args.sampling_freq,
+                                        'order': input_order,
+                                        'cutoff': input_cutoff,
+                                        'filter_type': input_filter,
+                                        'apply_filter': False,
+                                        'show_impulse_response': True,
+                                        'show_bodeplot': True,
+                                        'len_impulse': 1000,
+                                        'filter_mode': 'sos'
+                                    }
+                                    sos = prep.filter(
+                                        data=data.ieeg, filter_dict=filter_dict, use_qt=args.use_qt)
+
+                                    arg = input(
+                                        "Do you wish to apply this filter? ([y]/n): ").strip().lower()
+                                    plt.close()
+                                    if arg == 'n' or arg == 'no':
+                                        arg = input(
+                                            f"Filter not applied, still want to continue filtering? ([y]/n): ").strip().lower()
+                                        if arg == 'n' or arg == 'no':
+                                            continue_filtering = False
+                                        else:
+                                            continue
+                                    # apply filter
+                                    else:
+                                        filter_dict = {
+                                            'fs': args.sampling_freq,
+                                            'order': input_order,
+                                            'cutoff': input_cutoff,
+                                            'filter_type': input_filter,
+                                            'apply_filter': True,
+                                            'show_impulse_response': False,
+                                            'show_bodeplot': False,
+                                            'len_impulse': 1000,
+                                            'filter_mode': 'sos'
+                                        }
+                                        data.ieeg = prep.filter(
+                                            data=data.ieeg, filter_dict=filter_dict)
+                                        print(
+                                            f"{input_filter} filter applied!")
+                                        # save preprocessing information
+                                        info_dict[f'subject {subject_id}']['filtering']['applied'] = True
+                                        info_dict[f'subject {subject_id}']['filtering']['filters'][input_filter] = {
+                                            'order': input_order,
+                                            'cutoff': input_cutoff
+                                        }
+                                        # save filter information in case user wants to use the same filters for the next subject
+                                        used_filter_dict[input_filter] = filter_dict
+                            # wrong input, skip or continue filtering
+                            else:
+                                warnings.warn(
+                                    f"Filter {input_filter} not available. Available filters: {avail_filters}", UserWarning)
+                                arg = input(
+                                    f"Filter {input_filter} not available, still want to continue filtering? ([y]/n): ").strip().lower()
+                                if arg == 'n' or arg == 'no':
+                                    continue_filtering = False
+                                else:
+                                    continue
+                            # ask if user wants to continue filtering
                             arg = input(
-                                f"Filter {input_filter} not available, still want to continue filtering? ([y]/n): ").strip().lower()
+                                f"Want to continue filtering? ([y]/n): ").strip().lower()
                             if arg == 'n' or arg == 'no':
                                 continue_filtering = False
                             else:
                                 continue
-                        # ask if user wants to continue filtering
-                        arg = input(
-                            f"Want to continue filtering? ([y]/n): ").strip().lower()
-                        if arg == 'n' or arg == 'no':
-                            continue_filtering = False
-                        else:
-                            continue
 
+                    ################# RE-REFERENCING #################
                     # prompt user to re-reference data
                     continue_referencing = True
                     while continue_referencing:
@@ -571,35 +610,61 @@ if __name__ == '__main__':
                                 print(f"{ref_method} referencing applied!")
                             continue_referencing = False
 
+                    ################# SAVE DATA #################
                     # prompt user to save data
                     arg = input(
                         "Do you wish to save the data? ([y]/n): ").strip().lower()
                     if arg == 'y' or arg == 'yes' or arg == '':
-                        # prompt user for save path
-                        input_save_path = input(
-                            "Path to save data folder (default is data folder): ").strip()
-                        save_path = os.path.abspath(input_save_path)
-                        if save_path == '':
-                            print(f"Saving data to {args.path}")
-                            save_path = args.path
-                        elif os.path.isdir(save_path):
-                            print(f"Saving data to {save_path}")
-                        else:
-                            # create directory if it does not exist
-                            print(f"Creating directory {save_path}")
-                            os.mkdir(save_path)
+                        if save_path:
+                            arg = input(
+                                f"Previous save path: {repr(save_path)}\nPrevious postfix: {input_save_postfix}\nDo you wish to use the same directory and postfix as previous subject? ([y]/n): ").strip().lower()
+                            if arg == 'n' or arg == 'no':
+                                # prompt user for save path
+                                input_save_path = input(
+                                    "Path to save data folder (default is data folder): ").strip()
+                                save_path = os.path.abspath(input_save_path)
+                                if save_path == '':
+                                    print(f"Saving data to {args.path}")
+                                    save_path = args.path
+                                elif os.path.isdir(save_path):
+                                    print(f"Saving data to {save_path}")
+                                else:
+                                    # create directory if it does not exist
+                                    print(f"Creating directory {save_path}")
+                                    os.mkdir(save_path)
 
-                        # prompt user for postfix
-                        input_save_postfix = input(
-                            "Postfix to append when saving files: ").strip()
-                        if input_save_postfix == '':
-                            warnings.warn(
-                                "Continuing without a postfix!", UserWarning)
+                                # prompt user for postfix
+                                input_save_postfix = input(
+                                    "Postfix to append when saving files: ").strip()
+                                if input_save_postfix == '':
+                                    warnings.warn(
+                                        "Continuing without a postfix!", UserWarning)
+                            else:
+                                pass
 
-                        # save data
+                        # save
+                        # - experiment metadata
+                        # - iEEG data
+                        # - channel information
+                        # - IED data
+                        # - target data
                         data.save(path=save_path,
                                   postfix=input_save_postfix,
                                   verbose=args.verbose)
+
+                        arg = input(
+                            "Do you wish to save the iEEG data as a .fif file? ([y]/n): ").strip().lower()
+                        if arg == 'y' or arg == 'yes' or arg == '':
+                            data.create_mne_raw()
+                            # save
+                            # - MNE Raw object as .fif file
+                            data.write_raw_fif(path=save_path,
+                                               overwrite=True)
+                        elif arg == 'n' or arg == 'no':
+                            print("Skipping MNE Raw object creation...")
+                        else:
+                            warnings.warn(
+                                "Invalid input, skipping MNE Raw object creation...", UserWarning)
                         print("data saved!")
                         # save preprocessing information
                         info_dict[f'subject {subject_id}']['metadata']['save']['saved'] = True
@@ -632,7 +697,11 @@ if __name__ == '__main__':
                         # info_subjects_saved.append(subject_id)
                     elif arg == 'n' or arg == 'no':
                         print("skipping save...")
+                    else:
+                        warnings.warn(
+                            "Invalid input, skipping save...", UserWarning)
 
+                ################# END / CONTINUE PREPROCESSING #################
                 # prompt user to continue preprocessing
                 arg = input(
                     f"Do you want to continue preprocessing other subject data? ([y]/n): ").strip().lower()
