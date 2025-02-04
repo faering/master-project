@@ -49,6 +49,8 @@ if __name__ == '__main__':
     use_same_filters = False
     used_filter_dict = {}   # stores the previously applied filters
     save_path = None
+    # if a subject has been preprocessed before
+    bool_previous_subject_preprocessed = False
 
     # parse arguments
     try:
@@ -325,7 +327,12 @@ if __name__ == '__main__':
 
                     # continue to filter data until all desired filters are applied
                     while continue_filtering:
-                        if len(used_filter_dict) > 0:
+                        if len(used_filter_dict) > 0 and bool_previous_subject_preprocessed == True:
+                            print(
+                                "Previous subject has been preprocessed with the following filters:")
+                            for filter_type, filter_dict in used_filter_dict.items():
+                                print(
+                                    f"\t{filter_type} filter with order {filter_dict['order']} and cutoff frequency {filter_dict['cutoff']}")
                             arg = input(
                                 "Do you wish to use the same filters as the previous subject? ([y]/n): ").strip()
                             if arg == 'n' or arg == 'no':
@@ -347,6 +354,7 @@ if __name__ == '__main__':
                                     'cutoff': filter_dict['cutoff']
                                 }
                             continue_filtering = False
+                            use_same_filters = False
                         else:
                             print("Available filters:")
                             print("\thighpass/hp")
@@ -433,7 +441,8 @@ if __name__ == '__main__':
                                         'order': input_order,
                                         'cutoff': input_cutoff
                                     }
-
+                                    # save filter information in case user wants to use the same filters for the next subject
+                                    used_filter_dict[input_filter] = filter_dict
                                 else:
                                     # only show bodeplot and filter response, do not apply filter yet
                                     filter_dict = {
@@ -641,6 +650,27 @@ if __name__ == '__main__':
                                         "Continuing without a postfix!", UserWarning)
                             else:
                                 pass
+                        else:
+                            # prompt user for save path
+                            input_save_path = input(
+                                "Path to save data folder (default is data folder): ").strip()
+                            save_path = os.path.abspath(input_save_path)
+                            if save_path == '':
+                                print(f"Saving data to {args.path}")
+                                save_path = args.path
+                            elif os.path.isdir(save_path):
+                                print(f"Saving data to {save_path}")
+                            else:
+                                # create directory if it does not exist
+                                print(f"Creating directory {save_path}")
+                                os.mkdir(save_path)
+
+                            # prompt user for postfix
+                            input_save_postfix = input(
+                                "Postfix to append when saving files: ").strip()
+                            if input_save_postfix == '':
+                                warnings.warn(
+                                    "Continuing without a postfix!", UserWarning)
 
                         # save
                         # - experiment metadata
@@ -709,6 +739,7 @@ if __name__ == '__main__':
                     continue_preprocessing = False
                 else:
                     subject_id = None
+                    bool_previous_subject_preprocessed = True
                     continue
 
             except KeyboardInterrupt:
