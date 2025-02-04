@@ -304,6 +304,14 @@ class DataHandler():
                 df = self._get_experiment_meta(load_saved=False)
             else:
                 df = None
+        except TypeError:
+            print(
+                f"Could not create dataframe from raw data. Make sure you have loaded the full raw data first.")
+            if self.full is None:
+                path_raw = ''.join(
+                    (load_path, "/sub", self._subject_id, ".mat"))
+                self.full = self._load_matlab_raw(path=path_raw)
+                df = self._get_experiment_meta(load_saved=False)
         finally:
             return df
 
@@ -413,9 +421,13 @@ class DataHandler():
                 series_chan_name = pd.Series(
                     [None] * len(df_ied), name='chan name')
                 for i in range(len(self.df_chan)):
-                    if i+1 in df_ied['chan']:
+                    if i+1 in np.unique(df_ied['chan']):
                         idx = np.where(df_ied['chan'] == i+1)[0]
                         series_chan_name[idx] = self.df_chan['name'][i]
+                    else:
+                        if self._verbose:
+                            print(
+                                f"Channel {repr(self.df_chan['name'][i])} does not have IEDs.")
 
                 # add new column with channel names to df_ied
                 df_ied['chan name'] = series_chan_name
@@ -579,24 +591,6 @@ class DataHandler():
                     if self.df_exp is None:
                         print("experiment data not loaded")
                     print("done")
-
-                if self.df_exp is not None:
-                    if 'Trial Category' not in self.df_exp.columns.to_list():
-                        try:
-                            filename = ''.join(
-                                (load_path, "/sub", self._subject_id, "_trial_labels.csv"))
-                            if self._verbose:
-                                print(
-                                    f"Trying to load trial category from location {filename}...")
-                            series = pd.read_csv(filename)
-                            self.df_exp = pd.concat(
-                                [self.df_exp, series], axis=1)
-                            if self._verbose:
-                                print("Loaded trial category from saved file")
-                        except FileNotFoundError as fe:
-                            if self._verbose:
-                                print("Could not find file with trial category!")
-                            print(fe)
             except FileNotFoundError as fe:
                 print(
                     f"Could not find file with experiment metadata! {fe}")
@@ -978,7 +972,7 @@ class DataHandler():
             self.ch_names = self.df_chan['name'].to_list()
             return data
 
-    def create_raw(self, return_raw: bool = False):
+    def create_mne_raw(self, return_raw: bool = False):
         # MNE info object will be used to create MNE Raw object
         info = mne.create_info(
             ch_names=self.df_chan['name'].to_list(),
@@ -1032,6 +1026,23 @@ class DataHandler():
         else:
             self.raw = raw
 
+    def write_raw_fif(self, path: str = None, overwrite: bool = False):
+        """write_raw_fif Write raw object as .fif file using MNE.
+
+        Args:
+            path (str, optional): Path to write file.
+            overwrite (bool, optional): Overwrite the file if it exists. Defaults to False.
+        """
+        if path is None:
+            fname = ''.join(
+                (self._path, "/sub", self._subject_id, "_ieeg.fif"))
+        else:
+            fname = ''.join((path, "/sub", self._subject_id, "_ieeg.fif"))
+
+        if self.raw is None:
+            self.raw = self.create_mne_raw(return_raw=True)
+        self.raw.save(fname, overwrite=overwrite)
+
     def read_raw(self, fname: str, preload: bool = False, return_raw: bool = False):
         """read_raw Read a raw file using MNE.
 
@@ -1070,7 +1081,7 @@ class DataHandler():
         """
         if raw == None:
             if self.raw == None:
-                self.raw = self.create_raw()
+                self.raw = self.create_mne_raw()
                 raw = self.raw
             else:
                 raw = self.raw
@@ -1123,7 +1134,7 @@ class DataHandler():
             subjects_dir (str): The path to the folder containing all subjects' freesurfer output files.
         """
         if self.raw == None:
-            self.raw = self.create_raw()
+            self.raw = self.create_mne_raw()
 
         subject_dir_name = f'sub{self._subject_id}'
 
@@ -1263,7 +1274,7 @@ class DataHandler():
             print("No channel data found, use <DataHandler>.load() to load data.")
             return
         if self.raw == None:
-            self.raw = self.create_raw()
+            self.raw = self.create_mne_raw()
 
         # apply montage and add it to the raw object
         montage = self._add_montage(subjects_dir)
