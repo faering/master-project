@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from tabulate import tabulate
 
 
 def clean_outliers(df: pd.DataFrame, cols: (list, tuple, np.ndarray), num_std: int = 3, verbose: bool = False):
@@ -46,7 +47,6 @@ def clean_outliers(df: pd.DataFrame, cols: (list, tuple, np.ndarray), num_std: i
             data.append([outliers_, outliers_status, count,
                         col_name, lower_limit, upper_limit])
         if verbose:
-            from tabulate import tabulate
             print(f"Outliers (using {num_std} Standard Deviation)")
             table = tabulate(data, headers=['Outlier (Previously)', 'Outliers', 'Count',
                                             'Column', 'Lower Limit', 'Upper Limit'], tablefmt='rst', numalign='right')
