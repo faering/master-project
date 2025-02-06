@@ -3,6 +3,7 @@
 from argparse import ArgumentParser
 import os
 import json
+import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import traceback
@@ -10,6 +11,7 @@ import warnings
 import neuropsy as npsy
 import neuropsy.preprocessing as prep
 from neuropsy import utils
+import copy
 
 
 # ******** FUNCTIONS ********
@@ -35,6 +37,49 @@ def parse_args():
         if not os.path.isdir(args.path):
             raise ValueError(f"Path {repr(args.path)} does not exist")
     return args
+
+
+def get_ch_groups_in_electrode(elec_ch_names):
+    """get_ch_groups_in_electrode Get channel groups based on an electrode's name (eg. "A'").
+
+    One electrode might have multiple groups of channels, this function will return the groups
+    based on the channel names.
+
+    Args:
+        elec_ch_names (list, np.array): List or array of channel names for one electrode.
+
+    Returns:
+        elec_ch_groups (list): Nested list of channel names in each group, each sublist represents one group.
+
+    ´´´
+    # Example:
+    elec_ch_names = ['A 01', 'A 02', 'A 03', 'A 10', 'A 11', 'A 12']
+    elec_ch_groups = get_ch_groups_in_electrode(elec_ch_names)
+    print(elec_ch_groups)
+
+    # Output:
+    [['A 01', 'A 02', 'A 03'], ['A 10', 'A 11', 'A 12']]
+    ´´´
+    """
+    elec_ch_groups = []
+
+    # get the difference between the channel numbers
+    diff = np.diff([int(ch.split(' ')[1]) for ch in elec_ch_names])
+    # get the indices where the difference is greater than 1
+    idx = np.where(diff > 1)[0]
+    # if there are multiple groups
+    if len(idx) > 0:
+        # get the first group
+        elec_ch_groups.append(elec_ch_names[:idx[0]+1])
+        # get the rest of the groups
+        for i in range(1, len(idx)):
+            elec_ch_groups.append(elec_ch_names[idx[i-1]+1:idx[i]+1])
+        # get the last group
+        elec_ch_groups.append(elec_ch_names[idx[-1]+1:])
+    # if there is only one group
+    else:
+        elec_ch_groups.append(elec_ch_names)
+    return elec_ch_groups
 
 
 # ******** MAIN ********
@@ -311,7 +356,7 @@ if __name__ == '__main__':
                             data.df_exp.loc[idx_outliers, 'outlier'] = True
                             # save preprocessing information
                             info_dict[f'subject {subject_id}']['cleaning']['outliers']['applied'] = True
-                            info_dict[f'subject {subject_id}']['cleaning']['nan']['columns'] = cols
+                            info_dict[f'subject {subject_id}']['cleaning']['outliers']['columns'] = cols
                             info_dict[f'subject {subject_id}']['cleaning']['outliers']['indices'] = [
                                 int(idx) for idx in idx_outliers]
                             info_dict[f'subject {subject_id}']['cleaning']['outliers']['count'] = len(
@@ -549,8 +594,9 @@ if __name__ == '__main__':
                                 continue_referencing = False
                             else:
                                 continue
+                        # user has chosen a reference method
                         else:
-                            # monopolar
+                            # monopolar: get necessary user arguments
                             if ref_method == 'monopolar':
                                 ref_channel = input(
                                     "Reference channel: ").strip()
@@ -558,15 +604,11 @@ if __name__ == '__main__':
                                     warnings.warn(
                                         "No reference channel specified, try again!", UserWarning)
                                     continue
-                                # apply monopolar referencing
-                                data.ieeg = prep.reference(
-                                    data=data.ieeg, method=ref_method, ref_channel=ref_channel, verbose=args.verbose)
-                                # save preprocessing information
-                                info_dict[f'subject {subject_id}']['referencing']['applied'] = True
-                                info_dict[f'subject {subject_id}']['referencing']['method']['name'] = ref_method
-                                info_dict[f'subject {subject_id}']['referencing']['method']['ref_channel'] = ref_method
+                                # assign unused arguments to None
+                                direction = None
                             # bipolar
                             elif ref_method == 'bipolar':
+                                # get necessary user arguments
                                 direction = input(
                                     "Direction of bipolar referencing (left/right): ").strip().lower()
                                 if direction == '':
@@ -577,47 +619,154 @@ if __name__ == '__main__':
                                     warnings.warn(
                                         f"Direction {direction} not available, try again!", UserWarning)
                                     continue
-                                # apply bipolar referencing
-                                else:
-                                    ch_names = data.df_chan['name'].to_list()
-                                    data.ieeg, removed_ch_names, removed_indices = prep.reference(
-                                        data=data.ieeg, method=ref_method, ch_names=ch_names, direction=direction, verbose=args.verbose)
-                                    data.df_chan.drop(
-                                        removed_indices, inplace=True)
-                                    data.df_chan.reset_index(
-                                        drop=True, inplace=True)
-                                    # save preprocessing information
-                                    info_dict[f'subject {subject_id}']['referencing']['applied'] = True
-                                    info_dict[f'subject {subject_id}']['referencing']['method']['name'] = ref_method
-                                    info_dict[f'subject {subject_id}']['referencing']['method']['direction'] = direction
-                                    info_dict[f'subject {subject_id}']['referencing']['method'][
-                                        'removed_channels'] = removed_ch_names
+                                # assign unused arguments to None
+                                ref_channel = None
+                            # laplacian
                             elif ref_method == 'laplacian':
+                                # no further user input needed
+                                ref_channel = None
+                                direction = None
+                            # average
+                            elif ref_method == 'average':
+                                # no further user input needed
+                                ref_channel = None
+                                direction = None
+                            # median
+                            elif ref_method == 'median':
+                                # no further user input needed
+                                ref_channel = None
+                                direction = None
+
+                            try:
+                                if args.verbose:
+                                    print(
+                                        f"Starting {repr(ref_method)} re-referencing...")
+                                # copy ieeg data in case an exception occurs during the re-referencing the original data is preserved
+                                ieeg = copy.deepcopy(data.ieeg)
+                                # placeholder for all channel names that could not be re-referenced (important to remove them from channel dataframe and the iEEG data)
+                                all_ch_names_to_remove = []
+                                # get all channel names for subject
                                 ch_names = data.df_chan['name'].to_list()
-                                data.ieeg, removed_ch_names, removed_indices = prep.reference(
-                                    data=data.ieeg, method=ref_method, ch_names=ch_names, verbose=args.verbose)
-                                data.df_chan.drop(
-                                    removed_indices, inplace=True)
-                                data.df_chan.reset_index(
-                                    drop=True, inplace=True)
+                                # get unique electrode names
+                                elec_names = np.unique(
+                                    [ch.split(' ')[0] for ch in ch_names])
+                                # loop through all electrode names
+                                for elec in elec_names:
+                                    if args.verbose:
+                                        print(
+                                            f"Starting re-referencing for electrode {repr(elec)}...")
+                                    # get all channels for the electrode
+                                    elec_ch_names = [ch for ch in ch_names if ch.split(' ')[
+                                        0] == elec]
+                                    # get channel groups based on electrode name
+                                    elec_ch_groups = get_ch_groups_in_electrode(
+                                        elec_ch_names)
+                                    if args.verbose:
+                                        # inform user about the channel groups
+                                        print(
+                                            f"Found {'multiple groups' if len(elec_ch_groups) > 1 else 'a single group'} of channels:")
+                                    for i, g in enumerate([g for g in elec_ch_groups]):
+                                        print(f"\t{i+1}: {g}")
+                                    # loop over all channel groups in electrode (works also if only one group)
+                                    for ch_group in elec_ch_groups:
+                                        if args.verbose:
+                                            print(
+                                                f"Applying re-referencing on channel group: {ch_group}")
+                                        # get all channel indices for the channels in group from the channel dataframe
+                                        elec_ch_indices = data.df_chan[data.df_chan['name'].isin(
+                                            ch_group)].index.to_list()
+                                        # apply re-referencing to electrode channels
+                                        ieeg[elec_ch_indices, :], ch_names_referenced, ch_names_to_remove, ch_names_not_referenced = prep.reference(
+                                            data=ieeg[elec_ch_indices, :],
+                                            method=ref_method,
+                                            ch_names=ch_group,                      # only one group at a time
+                                            ref_channel=ref_channel,                # only when monopolar
+                                            direction=direction,                    # only when bipolar
+                                            verbose=args.verbose)
+
+                                        # [FIXME] this is a quick fix to accommodate the case where the user wants to remove channels that could not be re-referenced
+                                        # example is when only 1 channel is in a group but bipolar requires at least 2 channels (laplacian requires 3) in a group to apply re-referencing.
+                                        if ch_names_not_referenced is not None:
+                                            print(
+                                                f"Could not apply {repr(ref_method)} re-referencing to channel(s) {repr(ch_names_not_referenced)}")
+                                            print(
+                                                f"{repr(ref_method)} needs at least {2 if ref_method == 'bipolar' else 3} channels to apply re-referencing, got {len(ch_names_not_referenced)}")
+                                            arg = input(
+                                                f"Remove channel(s) {repr(ch_names_not_referenced)}? ([y]/n): ").strip().lower()
+                                            if arg == 'y' or arg == 'yes' or arg == '':
+                                                print(
+                                                    "No channels re-referenced")
+                                                print(
+                                                    f"Channels to remove: {repr(ch_names_not_referenced)}")
+                                                all_ch_names_to_remove.extend(
+                                                    ch_names_not_referenced)
+                                            else:
+                                                raise ValueError(
+                                                    f"Could not re-reference channels {repr(ch_names_not_referenced)}")
+                                        else:
+                                            print(
+                                                f"Channels successfully re-referenced: {repr(ch_names_referenced)}")
+                                            print(
+                                                f"Channels to remove: {repr(ch_names_to_remove)}")
+                                            # save information
+                                            all_ch_names_to_remove.extend(
+                                                ch_names_to_remove)
+
+                                    if args.verbose:
+                                        print(
+                                            f"Finished re-referencing electrode {repr(elec)}")
+
+                                if args.verbose:
+                                    print(
+                                        f"Removing {len(all_ch_names_to_remove)} channels that could not be re-referenced...")
+                                # get all channel indices for channels that could not be re-referenced and should be removed from the iEEG data
+                                all_removed_indices = data.df_chan[data.df_chan['name'].isin(
+                                    all_ch_names_to_remove)].index.to_list()
+                                # remove channels that could not be re-referenced from channel dataframe
+                                if args.verbose:
+                                    print(
+                                        f"Removing unreferenced channels from channel dataframe...")
+                                data.df_chan = data.df_chan.drop(
+                                    all_removed_indices)
+                                data.df_chan = data.df_chan.reset_index(
+                                    drop=True)
+                                if args.verbose:
+                                    print("Done")
+                                # remove channels that could not be re-referenced from iEEG data
+                                if args.verbose:
+                                    print(
+                                        f"Removing unreferenced channels from iEEG data...")
+                                ieeg = np.delete(
+                                    ieeg, all_removed_indices, axis=0)
+                                if args.verbose:
+                                    print("Done")
+                                # assign re-referenced data to data object after successful re-referencing
+                                data.ieeg = ieeg
+
                                 # save preprocessing information
                                 info_dict[f'subject {subject_id}']['referencing']['applied'] = True
                                 info_dict[f'subject {subject_id}']['referencing']['method']['name'] = ref_method
-                                info_dict[f'subject {subject_id}']['referencing']['method'][
-                                    'removed_channels'] = removed_ch_names
-                            # average
-                            elif ref_method == 'average':
-                                data.ieeg = prep.reference(
-                                    data=data.ieeg, method=ref_method, verbose=args.verbose)
-                                continue
-                            elif ref_method == 'median':
-                                data.ieeg = prep.reference(
-                                    data=data.ieeg, method=ref_method, verbose=args.verbose)
-                                continue
+                                if ref_method == 'monopolar':
+                                    info_dict[f'subject {subject_id}']['referencing']['method']['ref_channel'] = ref_channel
+                                if ref_method == 'bipolar':
+                                    info_dict[f'subject {subject_id}']['referencing']['method']['direction'] = direction
+                                info_dict[f'subject {subject_id}']['referencing']['method']['electrodes'] = {
+                                }
+                                for elec in elec_names:
+                                    info_dict[f'subject {subject_id}']['referencing']['method']['electrodes'][elec] = {
+                                        "channels": [ch for ch in data.df_chan['name'].to_list() if ch.split(' ')[0] == elec],
+                                        "removed": [ch for ch in all_ch_names_to_remove if ch.split(' ')[0] == elec]
+                                    }
 
-                            if args.verbose:
-                                print(f"{ref_method} referencing applied!")
-                            continue_referencing = False
+                                if args.verbose:
+                                    print(
+                                        f"Finished {repr(ref_method)} re-referencing!")
+                                continue_referencing = False
+                            except ValueError as e:
+                                print(e)
+                                print(
+                                    "Reverting to previous state (before re-referencing)...")
+                                continue
 
                     ################# SAVE DATA #################
                     # prompt user to save data

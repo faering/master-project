@@ -1,9 +1,11 @@
 import pandas as pd
 import numpy as np
+import numpy.typing as npt
 from tabulate import tabulate
+import copy
 
 
-def clean_outliers(df: pd.DataFrame, cols: (list, tuple, np.ndarray), num_std: int = 3, verbose: bool = False):
+def clean_outliers(df: pd.DataFrame, cols: list | tuple | npt.ArrayLike, num_std: int = 3, verbose: bool = False):
     """clean_outliers Remove outliers in given columns.
 
     Args:
@@ -110,7 +112,7 @@ def clean_outliers(df: pd.DataFrame, cols: (list, tuple, np.ndarray), num_std: i
     return df, idx
 
 
-def clean_nan(df: pd.DataFrame, cols: (list, tuple, np.ndarray), verbose: bool = False):
+def clean_nan(df: pd.DataFrame, cols: list | tuple | npt.ArrayLike, verbose: bool = False):
     """clean_nan Remove NaNs in given columns.
 
     Args:
@@ -258,10 +260,30 @@ def filter(data: np.ndarray, filter_dict: dict = {"order": 4, "cutoff": 500, "fs
         return b, a
 
 
-def reference(data: np.ndarray, method: str, ch_names: (list, tuple, np.ndarray) = None, ref_channel: int = None, direction: str = None, verbose: bool = False):
-    """reference Reference the data using one of the available methods.
+def reference(data: npt.ArrayLike, method: str, ch_names: list | tuple | npt.ArrayLike = None, ref_channel: int = None, direction: str = None, verbose: bool = False):
+    """reference Reference channels in one electrode using one of the available methods.
 
-    [TODO]
+    Available methods are:
+    - 'monopolar': Reference all channels to a single reference channel.
+    - 'bipolar': Reference channels using neighbouring channel as reference.
+    - 'laplacian': Reference channels using the average of neighbouring channels as reference.
+    - 'average': Reference the data to the average of all channels. (Not yet implemented)
+    - 'median': Reference the data to the median of all channels. (Not yet implemented)
+
+    Args:
+        data (np.ndarray): 2D array with channel data.
+        method (str): The method to use for re-referencing. Options are 'monopolar', 'bipolar', 'laplacian', 'average', or 'median'.
+        ch_names (list, tuple, np.array): List of channel names for one electrode. Default is None.
+        ref_channel (int): The index to use as reference channel when method='monopolar'. Default is None.
+        direction (str): The direction of the bipolar referencing. If 'right' the n+1 channel will substracted from the n channel. If 'left' the n channel will be substracted from the n+1 channel. Default is None.
+        verbose (bool): Print verbose to stdout. Default is False.
+
+    Returns:
+        data (np.ndarray): Re-referenced data with data.shape[0] - removed channels. 
+                           Remove the channels that cannot be referenced if method is 'bipolar' (elec_n_channels - 1) or 'laplacian' (elec_n_channels - 2)).
+        ch_names_referenced (list): List of channel names that were re-referenced. None if no channels were re-referenced.
+        ch_names_to_remove (list): List of channel names that could not be re-referenced (bipolar will always result in rank N-1, laplacian N-2).
+        ch_names_not_re_referenced (list): ch_names if not possible to re-reference. None if re-referencing is applied.
     """
 
     def _monopolar(data, ref_channel, verbose):
@@ -279,34 +301,35 @@ def reference(data: np.ndarray, method: str, ch_names: (list, tuple, np.ndarray)
         """
 
         # check arguments
-        if isinstance(ref_channel, int):
-            if ref_channel >= len(data[0]) - 1:
-                raise ValueError(
-                    f"ref_channel must be smaller than the number of channels in the data. Got {ref_channel} but expected {data.shape[0]}")
-        else:
-            raise ValueError(
-                f"ref_channel must be an integer, got {repr(ref_channel)}")
-        if isinstance(data, np.ndarray):
-            if data.ndim != 2:
-                raise ValueError(
-                    f"data must be a 2D array (channels, data), got {data.ndim}D array")
-        else:
-            raise ValueError(f"data must be a numpy array, got {type(data)}")
+        # if isinstance(ref_channel, int):
+        #     if ref_channel >= len(data[0]) - 1:
+        #         raise ValueError(
+        #             f"ref_channel must be smaller than the number of channels in the data. Got {ref_channel} but expected {data.shape[0]}")
+        # else:
+        #     raise ValueError(
+        #         f"ref_channel must be an integer, got {repr(ref_channel)}")
+        # if isinstance(data, np.ndarray):
+        #     if data.ndim != 2:
+        #         raise ValueError(
+        #             f"data must be a 2D array (channels, data), got {data.ndim}D array")
+        # else:
+        #     raise ValueError(f"data must be a numpy array, got {type(data)}")
 
-        # start re-referencing
-        if verbose:
-            print("applying re-referencing method: 'monopolar'")
-        if verbose:
-            print(f"reference channel: {ref_channel}")
-        # get all channels except the reference channel
-        selector = [i for i in range(data.shape[0]) if i != ref_channel]
-        # subtract the reference channel from all other channels
-        data[selector, :] = data[selector, :] - data[ref_channel, :]
-        if verbose:
-            print("successfully re-referenced data!")
+        # # start re-referencing
+        # if verbose:
+        #     print("applying re-referencing method: 'monopolar'")
+        # if verbose:
+        #     print(f"reference channel: {ref_channel}")
+        # # get all channels except the reference channel
+        # selector = [i for i in range(data.shape[0]) if i != ref_channel]
+        # # subtract the reference channel from all other channels
+        # data[selector, :] = data[selector, :] - data[ref_channel, :]
+        # if verbose:
+        #     print("successfully re-referenced data!")
+        print("The method 'monopolar' is not yet implemented. Try another method.")
         return data
 
-    def _bipolar(data: np.array, ch_names: (list, np.array), direction: str, verbose: bool):
+    def _bipolar(data: npt.ArrayLike, ch_names: list | npt.ArrayLike, direction: str, verbose: bool):
         """_bipolar Bipolar Reference channels using neighbouring channel as reference.
 
         Args:
@@ -315,10 +338,11 @@ def reference(data: np.ndarray, method: str, ch_names: (list, tuple, np.ndarray)
                                        channels appear in the data. Default is None.
             direction (str): The direction of the bipolar referencing. If 'right' the n+1 channel will
                              substracted from the n channel. If 'left' the n channel will be 
-                             substracted from the n+1 channel. Default is 'right'.
+                             substracted from the n+1 channel.
 
         Returns:
-            new_data (ndarray): Re-referenced data with N-1 channels.
+            data (ndarray): Re-referenced data (all channels included, also not re-referenced).
+            removed_ch_names (list): List of channel names that could not be re-referenced.
         """
         # check arguments
         if isinstance(direction, str):
@@ -344,49 +368,36 @@ def reference(data: np.ndarray, method: str, ch_names: (list, tuple, np.ndarray)
             raise ValueError(
                 f"ch_names must be a list or numpy array, got {type(ch_names)}")
 
-        # start re-referencing
-        if verbose:
-            print("applying re-referencing method: 'bipolar'")
-        # get the unique channels names from ch_names
-        unique_electrodes = _get_unique_channels(ch_names)
-        if verbose:
-            print(
-                f"found {len(unique_electrodes)} unique electrodes and {len(ch_names)} channels")
-        # tmp list find indices in list matching electrode name
-        tmp_ch_names = np.array([ch.split(' ')[0] for ch in ch_names])
-
-        # iterate over unique electrodes
-        removed_indices = []
-        removed_ch_names = []
-        for electrode in unique_electrodes:
-            indices = np.where(tmp_ch_names == electrode)[0]
-            # iterate over N-1 contacts for each electrode
-            for i in range(len(indices) - 1):
+        # check if there are enough channels to apply re-referencing method
+        if data.shape[0] < 2:
+            data_ref = data
+            ch_names_referenced = None
+            ch_names_to_remove = None
+            ch_names_not_re_referenced = ch_names
+        else:
+            data_ref = copy.deepcopy(data)
+            # start re-referencing
+            ch_names_to_remove = []
+            # iterate over N-1 channels
+            for i in range(data.shape[0] - 1):
                 if direction == 'right':
-                    # subtract the next channel from the current channel
-                    data[indices[i], :] = data[indices[i], :] - \
-                        data[indices[i + 1], :]
+                    # subtract the n+1 channel from the n channel
+                    data_ref[i, :] = data[i, :] - data[i + 1, :]
                 elif direction == 'left':
-                    # subtract the previous channel from the current channel
-                    data[indices[i + 1], :] = data[indices[i + 1], :] - \
-                        data[indices[i], :]
-            # remove the last channel depending on the direction
+                    # subtract the n channel from the n+1 channel
+                    data_ref[i + 1, :] = data[i + 1, :] - data[i, :]
+            # assign return variables
+            # return channel that cannot be re-referenced depending on the direction
             if direction == 'right':
-                removed_indices.append(indices[-1])
-                removed_ch_names.append(ch_names[indices[-1]])
+                ch_names_to_remove.append(ch_names[-1])
             elif direction == 'left':
-                removed_indices.append(indices[0])
-                removed_ch_names.append(ch_names[indices[0]])
-        # remove the first or last contact (channel) in each electrode depending on the direction of the subtraction
-        if verbose:
-            print(f"removing {len(removed_indices)} channels from data")
-            print(f"removing channels: {removed_ch_names}")
-        data = np.delete(data, removed_indices, axis=0)
-        if verbose:
-            print("successfully re-referenced data!")
-        return data, removed_ch_names, removed_indices
+                ch_names_to_remove.append(ch_names[0])
+            ch_names_referenced = [
+                ch for ch in ch_names if ch not in ch_names_to_remove]
+            ch_names_not_re_referenced = None
+        return data_ref, ch_names_referenced, ch_names_to_remove, ch_names_not_re_referenced
 
-    def _laplacian(data: np.ndarray, ch_names: (list, np.array), verbose: bool):
+    def _laplacian(data: npt.ArrayLike, ch_names: list | npt.ArrayLike, verbose: bool):
         """Laplacian Reference channels using the average of neighbouring channels as reference.
 
         Args:
@@ -413,42 +424,32 @@ def reference(data: np.ndarray, method: str, ch_names: (list, tuple, np.ndarray)
             raise ValueError(
                 f"ch_names must be a list or numpy array, got {type(ch_names)}")
 
-        # start re-referencing
-        if verbose:
-            print("applying re-referencing method: 'laplacian'")
-        # get the unique channels names from ch_names
-        unique_electrodes = _get_unique_channels(ch_names)
-        if verbose:
-            print(
-                f"found {len(unique_electrodes)} unique electrodes and {len(ch_names)} channels")
-        # tmp list of channel names to find indices in list matching electrode name
-        tmp_ch_names = np.array([ch.split(' ')[0] for ch in ch_names])
-
-        # iterate over unique electrodes
-        removed_indices = []
-        removed_ch_names = []
-        for electrode in unique_electrodes:
-            indices = np.where(tmp_ch_names == electrode)[0]
-            # iterate over N-2 contacts for each electrode
-            for i in range(len(indices) - 2):
+        # check if there are enough channels to apply re-referencing method
+        if data.shape[0] < 3:
+            data_ref = data
+            ch_names_referenced = None
+            ch_names_to_remove = None
+            ch_names_not_re_referenced = ch_names
+        else:
+            data_ref = copy.deepcopy(data)
+            # start re-referencing
+            ch_names_to_remove = []
+            # iterate over N-2 channels
+            for i in range(data.shape[0] - 2):
+                # for readability
+                n = i + 1
                 # subtract the mean of the previous and next channel from the current channel
-                data[indices[i + 1], :] = data[indices[i + 1], :] - \
-                    0.5 * (data[indices[i], :] + data[indices[i + 1], :])
-            # remove the first and last channels
-            removed_indices.append(indices[0])
-            removed_indices.append(indices[-1])
-            removed_ch_names.append(ch_names[indices[0]])
-            removed_ch_names.append(ch_names[indices[-1]])
-        # remove the first and last channels in each electrode
-        if verbose:
-            print(f"removing {len(removed_indices)} channels from data")
-            print(f"removing channels: {removed_ch_names}")
-        data = np.delete(data, removed_indices, axis=0)
-        if verbose:
-            print("successfully re-referenced data!")
-        return data, removed_ch_names, removed_indices
+                data_ref[n, :] = data[n, :] - \
+                    0.5 * (data[n - 1, :] + data[n + 1, :])
+            # return channels that cannot be re-referenced (each electrode/channel-group has 2 channels that cannot be re-referenced)
+            ch_names_to_remove.append(ch_names[0])
+            ch_names_to_remove.append(ch_names[-1])
+            ch_names_referenced = [
+                ch for ch in ch_names if ch not in ch_names_to_remove]
+            ch_names_not_re_referenced = None
+        return data_ref, ch_names_referenced, ch_names_to_remove, ch_names_not_re_referenced
 
-    def _average(data: np.ndarray):
+    def _average(data: npt.ArrayLike):
         """average Reference the data to the average of all channels.
 
         This method is also referred to as the Common Average Reference (CAR) method.
@@ -469,22 +470,84 @@ def reference(data: np.ndarray, method: str, ch_names: (list, tuple, np.ndarray)
         print("The method 'median' is not yet implemented. Try another method.")
         return data
 
-    def _get_unique_channels(x: np.array = None) -> np.array:
-        """_get_unique_channels Find unique electrodes based on names in a numpy array
+    # def _get_ch_groups_in_electrode(ch_names):
+    #     """_get_ch_groups_in_electrode Get channel groups based on an electrode's name (eg. "A'").
+
+    #     One electrode might have multiple groups of channels, this function will return the groups
+    #     based on the channel names.
+
+    #     Args:
+    #         ch_names (list, np.array): List or array of channel names for one electrode.
+
+    #     Returns:
+    #         elec_ch_groups (list): Nested list of channel names in each group, each sublist represents one group.
+
+    #     ´´´
+    #     # Example:
+    #     ch_names = ['A 01', 'A 02', 'A 03', 'A 10', 'A 11', 'A 12']
+    #     elec_ch_groups = _get_ch_groups_in_electrode(ch_names)
+    #     print(elec_ch_groups)
+
+    #     # Output:
+    #     [['A 01', 'A 02', 'A 03'], ['A 10', 'A 11', 'A 12']]
+    #     ´´´
+    #     """
+    #     elec_ch_groups = []
+
+    #     # get the difference between the channel numbers
+    #     diff = np.diff([int(ch.split(' ')[1]) for ch in ch_names])
+    #     # get the indices where the difference is greater than 1
+    #     idx = np.where(diff > 1)[0]
+    #     # if there are multiple groups
+    #     if len(idx) > 0:
+    #         # get the first group
+    #         elec_ch_groups.append(ch_names[:idx[0]+1])
+    #         # get the rest of the groups
+    #         for i in range(1, len(idx)):
+    #             elec_ch_groups.append(ch_names[idx[i-1]+1:idx[i]+1])
+    #         # get the last group
+    #         elec_ch_groups.append(ch_names[idx[-1]+1:])
+    #     # if there is only one group
+    #     else:
+    #         elec_ch_groups.append(ch_names)
+    #     return elec_ch_groups
+
+    def _apply_method(method, ch_data, ch_names, ref_channel, direction, verbose):
+        """_apply_method Apply the selected method for re-referencing.
 
         Args:
-            x (np.array): Array with electrode names. Default is None.
+            method (str): The method to use for re-referencing.
 
         Returns:
-            unique_arr (np.array): Array with unique electrode names.
+            data_ref (np.ndarray): Re-referenced channel data.
+            ch_names_to_remove (list): List of channel names that could not be re-referenced.
         """
-        tmp_list = []
-        for i in range(len(x)):
-            tmp_list.append(x[i].split(' ')[0])
-        unique_arr = np.sort(np.unique(tmp_list))
-        return unique_arr
+        ch_names_referenced = None
+        ch_names_to_remove = None
+        ch_names_not_re_referenced = None
 
-    # check arguments
+        if method == 'monopolar':
+            # check arguments
+            data_ref = _monopolar(data=ch_data,
+                                  ref_channel=ref_channel,
+                                  verbose=verbose)
+        elif method == 'bipolar':
+            data_ref, ch_names_referenced, ch_names_to_remove, ch_names_not_re_referenced = _bipolar(data=ch_data,
+                                                                                                     ch_names=ch_names,
+                                                                                                     direction=direction,
+                                                                                                     verbose=verbose)
+        elif method == 'laplacian':
+            data_ref, ch_names_referenced, ch_names_to_remove, ch_names_not_re_referenced = _laplacian(data=ch_data,
+                                                                                                       ch_names=ch_names,
+                                                                                                       verbose=verbose)
+        elif method == 'average':
+            data_ref = _average(data=ch_data)
+        elif method == 'median':
+            data_ref = _median(data=ch_data)
+        return data_ref, ch_names_referenced, ch_names_to_remove, ch_names_not_re_referenced
+
+    ############################## MAIN FUNCTION ##############################
+    # Check arguments
     if isinstance(verbose, bool):
         verbose = verbose
     else:
@@ -543,26 +606,17 @@ def reference(data: np.ndarray, method: str, ch_names: (list, tuple, np.ndarray)
         raise ValueError(
             f"method must be a string, got {repr(method)}")
 
-    # start re-referencing
-    if method == 'monopolar':
-        data = _monopolar(data=data,
-                          ref_channel=ref_channel,
-                          verbose=verbose)
-    elif method == 'bipolar':
-        data, removed_ch_names, removed_indices = _bipolar(data=data,
-                                                           ch_names=ch_names,
-                                                           direction=direction,
-                                                           verbose=verbose)
-    elif method == 'laplacian':
-        data, removed_ch_names, removed_indices = _laplacian(data=data,
-                                                             ch_names=ch_names,
-                                                             verbose=verbose)
-    elif method == 'average':
-        data = _average(data=data)
-    elif method == 'median':
-        data = _median(data=data)
+    elec_name = ch_names[0].split(' ')[0]
+    # check if all provided channels are from the same electrode
+    assert all([ch.split(' ')[0] == elec_name for ch in ch_names]
+               ), 'All channels must be from the same electrode!'
 
-    if method == 'bipolar' or method == 'laplacian':
-        return data, removed_ch_names, removed_indices
-    else:
-        return data
+    # apply re-referencing method
+    data_ref, ch_names_referenced, ch_names_to_remove, ch_names_not_re_referenced = _apply_method(method=method,
+                                                                                                  ch_data=data,
+                                                                                                  ch_names=ch_names,
+                                                                                                  ref_channel=ref_channel,
+                                                                                                  direction=direction,
+                                                                                                  verbose=verbose)
+
+    return data_ref, ch_names_referenced, ch_names_to_remove, ch_names_not_re_referenced
